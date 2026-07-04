@@ -121,7 +121,9 @@ export function MspDashboard({ onYoloBoxUpdate, rtspConnected }) {
           } else {
             nextState.customMessage = decoded.message || '';
             nextState.customLength = decoded.length || 0;
-            addLog(`CMD31 [${decoded.rawHex}]`, 'rx');
+            if (decoded.rawHex) {
+              addLog(`CMD31 [${decoded.rawHex}]`, 'rx');
+            }
           }
         }
 

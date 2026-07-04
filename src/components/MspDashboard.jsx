@@ -8,7 +8,7 @@ import {
 } from '../utils/mspProtocol';
 import './MspDashboard.css';
 
-export function MspDashboard() {
+export function MspDashboard({ onYoloBoxUpdate, rtspConnected }) {
   const [wsUrl, setWsUrl] = useState('ws://192.168.222.1:27015');
   const [isConnected, setIsConnected] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
@@ -17,12 +17,14 @@ export function MspDashboard() {
   const [telemetry, setTelemetry] = useState({
     armed: 'UNKNOWN',
     cycleTime: 0,
-    i2cErrorCounter: 0,
     activeSensors: 'None',
-    averageSystemLoadPercent: 0,
     roll: 0,
     pitch: 0,
     yaw: 0,
+    batteryVoltage: 0,
+    amperage: 0,
+    mAhDrawn: 0,
+    rssi: 0,
     bitrateKbps: 0,
     customMessage: '',
     customLength: 0
@@ -33,11 +35,17 @@ export function MspDashboard() {
   const [customPayloadHex, setCustomPayloadHex] = useState('');
 
   // Polling settings (Sequential poll cycle of actual GClient telemetry)
+  // CMD31 (MSP_RU_CUSTOM_MESSAGE) is interleaved frequently to avoid missing
+  // low-frequency (1Hz) custom frames that can be overwritten by high-frequency YOLO data
   const pollCycle = useRef([
+    MSP_COMMANDS.MSP_RU_CUSTOM_MESSAGE,
     MSP_COMMANDS.MSP_STATUS,
+    MSP_COMMANDS.MSP_RU_CUSTOM_MESSAGE,
     MSP_COMMANDS.MSP_ATTITUDE,
+    MSP_COMMANDS.MSP_RU_CUSTOM_MESSAGE,
+    MSP_COMMANDS.MSP_ANALOG,
+    MSP_COMMANDS.MSP_RU_CUSTOM_MESSAGE,
     MSP_COMMANDS.MSP_RU_VIDEO_INFO,
-    MSP_COMMANDS.MSP_RU_CUSTOM_MESSAGE
   ]);
   const currentPollIndex = useRef(0);
   const pollTimerRef = useRef(null);
@@ -89,21 +97,32 @@ export function MspDashboard() {
         if (frame.command === MSP_COMMANDS.MSP_STATUS) {
           nextState.armed = decoded.isArmed;
           nextState.cycleTime = decoded.cycleTime;
-          nextState.i2cErrorCounter = decoded.i2cErrorCounter;
           nextState.activeSensors = decoded.activeSensors;
-          nextState.averageSystemLoadPercent = decoded.averageSystemLoadPercent;
         } 
         else if (frame.command === MSP_COMMANDS.MSP_ATTITUDE) {
           nextState.roll = decoded.roll;
           nextState.pitch = decoded.pitch;
           nextState.yaw = decoded.yaw;
         }
+        else if (frame.command === MSP_COMMANDS.MSP_ANALOG) {
+          nextState.batteryVoltage = decoded.batteryVoltage;
+          nextState.amperage = decoded.amperage;
+          nextState.mAhDrawn = decoded.mAhDrawn;
+          nextState.rssi = decoded.rssi;
+        }
         else if (frame.command === MSP_COMMANDS.MSP_RU_VIDEO_INFO) {
           nextState.bitrateKbps = decoded.bitrateKbps;
         }
         else if (frame.command === MSP_COMMANDS.MSP_RU_CUSTOM_MESSAGE) {
-          nextState.customMessage = decoded.message || '';
-          nextState.customLength = decoded.length || 0;
+          if (decoded.isYolo) {
+            if (onYoloBoxUpdate) {
+              onYoloBoxUpdate(decoded);
+            }
+          } else {
+            nextState.customMessage = decoded.message || '';
+            nextState.customLength = decoded.length || 0;
+            addLog(`CMD31 [${decoded.rawHex}]`, 'rx');
+          }
         }
 
         return nextState;
@@ -118,7 +137,7 @@ export function MspDashboard() {
       // Speed threshold: 10ms gap to keep a smooth flow and avoid network congestion
       setTimeout(pollNext, 10);
     }
-  }, [pollNext]);
+  }, [pollNext, onYoloBoxUpdate, addLog]);
 
   const startPollingLoop = () => {
     isPollingRef.current = true;
@@ -134,10 +153,25 @@ export function MspDashboard() {
     }
   };
 
+  // Reconnect Timer Ref
+  const reconnectTimerRef = useRef(null);
+
   const connect = () => {
-    disconnect();
+    // Clear any pending reconnect timers
+    if (reconnectTimerRef.current) {
+      clearTimeout(reconnectTimerRef.current);
+      reconnectTimerRef.current = null;
+    }
+
+    if (wsRef.current) {
+      try {
+        wsRef.current.close();
+      } catch (e) {}
+      wsRef.current = null;
+    }
+
     setErrorMsg('');
-    addLog(`Connecting to GClient at ${wsUrl}...`, 'info');
+    addLog('Connecting to GClient...', 'info');
 
     try {
       const ws = new WebSocket(wsUrl);
@@ -145,32 +179,45 @@ export function MspDashboard() {
       wsRef.current = ws;
 
       ws.onopen = () => {
+        if (wsRef.current !== ws) return;
         setIsConnected(true);
         addLog('WebSocket connection established.', 'success');
         startPollingLoop(); // Automatically start real-time telemetry pull
       };
 
       ws.onmessage = (event) => {
+        if (wsRef.current !== ws) return;
         handleMessage(event);
       };
 
       ws.onclose = (event) => {
+        if (wsRef.current !== ws) return;
         setIsConnected(false);
-        addLog(`WebSocket connection closed. Code: ${event.code}`, 'warning');
+        addLog(`WebSocket connection closed. Reconnecting in 3s...`, 'warning');
         stopPollingLoop();
+
+        if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
+        reconnectTimerRef.current = setTimeout(connect, 3000);
       };
 
       ws.onerror = (err) => {
+        if (wsRef.current !== ws) return;
         setErrorMsg('WebSocket connection error.');
         addLog('WebSocket connection error occurred.', 'error');
         stopPollingLoop();
       };
     } catch (err) {
       setErrorMsg(err.message || 'Connection failed');
+      if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
+      reconnectTimerRef.current = setTimeout(connect, 3000);
     }
   };
 
   const disconnect = () => {
+    if (reconnectTimerRef.current) {
+      clearTimeout(reconnectTimerRef.current);
+      reconnectTimerRef.current = null;
+    }
     stopPollingLoop();
     if (wsRef.current) {
       wsRef.current.close();
@@ -205,15 +252,24 @@ export function MspDashboard() {
 
   const clearLogs = () => setLogs([]);
 
-  // Destructor cleanup
+  // Connect to GClient only after RTSP is live; disconnect when RTSP drops
   useEffect(() => {
+    if (rtspConnected) {
+      connect();
+    } else {
+      disconnect();
+    }
+
     return () => {
       stopPollingLoop();
       if (wsRef.current) {
         wsRef.current.close();
       }
+      if (reconnectTimerRef.current) {
+        clearTimeout(reconnectTimerRef.current);
+      }
     };
-  }, []);
+  }, [rtspConnected]);
 
   return (
     <div className="msp-card">
@@ -224,24 +280,7 @@ export function MspDashboard() {
         </span>
       </div>
 
-      <div className="connection-settings">
-        <div className="input-group">
-          <label>GClient WebSocket Server</label>
-          <input 
-            type="text" 
-            value={wsUrl} 
-            onChange={(e) => setWsUrl(e.target.value)} 
-            disabled={isConnected}
-          />
-        </div>
-        <div className="button-group">
-          {!isConnected ? (
-            <button className="btn btn-primary" onClick={connect}>Connect GCS</button>
-          ) : (
-            <button className="btn btn-danger" onClick={disconnect}>Disconnect</button>
-          )}
-        </div>
-      </div>
+
 
       {errorMsg && <div className="error-alert">{errorMsg}</div>}
 
@@ -256,14 +295,6 @@ export function MspDashboard() {
           </div>
           
           <div className="stat-card flex-row">
-            <div className="mini-stat">
-              <label>CPU Load</label>
-              <span>{telemetry.averageSystemLoadPercent}%</span>
-            </div>
-            <div className="mini-stat">
-              <label>I2C Error</label>
-              <span>{telemetry.i2cErrorCounter}</span>
-            </div>
             <div className="mini-stat">
               <label>Sensors</label>
               <span className="sensors-list">{telemetry.activeSensors}</span>
@@ -302,18 +333,22 @@ export function MspDashboard() {
             </div>
           </div>
 
-          {/* Panel 3: Custom Message / YOLO BBoxes */}
-          <div className="gcs-panel full-width-panel custom-msg-panel">
-            <h4>POPPED CUSTOM MESSAGES (FIFO)</h4>
-            <div className="custom-msg-display">
-              {telemetry.customMessage ? (
-                <div className="msg-content">
-                  <span className="msg-tag">Length: {telemetry.customLength} B</span>
-                  <p className="msg-text">{telemetry.customMessage}</p>
-                </div>
-              ) : (
-                <span className="msg-placeholder">No custom target/YOLO message queued in GClient.</span>
-              )}
+          {/* Panel 3: Power & Signal */}
+          <div className="gcs-panel full-width-panel">
+            <h4>Power & Signal</h4>
+            <div className="stat-grid-3x1">
+              <div className="metric-box">
+                <span className="label">Voltage</span>
+                <span className="value voltage">{telemetry.batteryVoltage.toFixed(2)} V</span>
+              </div>
+              <div className="metric-box">
+                <span className="label">Current</span>
+                <span className="value">{telemetry.amperage.toFixed(2)} A</span>
+              </div>
+              <div className="metric-box">
+                <span className="label">RSSI</span>
+                <span className="value rssi">{telemetry.rssi}</span>
+              </div>
             </div>
           </div>
 

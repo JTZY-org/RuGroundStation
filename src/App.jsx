@@ -4,6 +4,9 @@ import { MspDashboard } from './components/MspDashboard';
 import './App.css';
 
 function App() {
+  const [yoloBox, setYoloBox] = React.useState(null);
+  const [rtspConnected, setRtspConnected] = React.useState(false);
+
   return (
     <div className="app-container">
       <header className="app-header">
@@ -19,11 +22,11 @@ function App() {
       <main className="app-main">
         <div className="tester-grid">
           <div className="grid-col video-section">
-            <VideoPlayer />
+            <VideoPlayer yoloBox={yoloBox} onRtspConnected={setRtspConnected} />
           </div>
           
           <div className="grid-col dashboard-section">
-            <MspDashboard />
+            <MspDashboard onYoloBoxUpdate={setYoloBox} rtspConnected={rtspConnected} />
           </div>
         </div>
       </main>

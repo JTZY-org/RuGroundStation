@@ -32,14 +32,16 @@ function startRtspProxy() {
       '-i', rtspUrl,
       '-f', 'mpegts',
       '-codec:v', 'mpeg1video',
-      '-b:v', '4000k',                 // Higher bitrate for high framerate
+      '-r', '60',                      // Set stable 60fps (MPEG-1 specification maximum limit)
+      '-threads', '0',                 // Enable multi-threaded encoding for high-speed performance
+      '-b:v', '4000k',                 // Higher bitrate for clarity
       '-preset', 'ultrafast',
       '-tune', 'zerolatency',
       '-an',
       '-'
     ];
 
-    const ffmpeg = spawn('ffmpeg', ffmpegParams, { shell: true });
+    const ffmpeg = spawn('ffmpeg', ffmpegParams);
     activeFfmpgProcesses.add(ffmpeg);
 
     ffmpeg.stdout.on('data', (data) => {
@@ -60,13 +62,17 @@ function startRtspProxy() {
 
     ws.on('close', () => {
       console.log('[Electron-Proxy] Client socket closed. Terminating FFmpeg process');
-      ffmpeg.kill('SIGINT');
+      try {
+        ffmpeg.kill('SIGKILL');
+      } catch (e) {}
       activeFfmpgProcesses.delete(ffmpeg);
     });
 
     ws.on('error', (err) => {
       console.error('[Electron-Proxy] WebSocket connection error:', err.message);
-      ffmpeg.kill('SIGINT');
+      try {
+        ffmpeg.kill('SIGKILL');
+      } catch (e) {}
       activeFfmpgProcesses.delete(ffmpeg);
     });
   });

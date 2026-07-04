@@ -23,7 +23,9 @@ wss.on('connection', (ws, req) => {
     '-i', rtspUrl,                   // Input RTSP Stream URL
     '-f', 'mpegts',                  // Format Output as MPEG-TS
     '-codec:v', 'mpeg1video',        // Transcode video to MPEG1
-    '-b:v', '4000k',                 // Higher bitrate for high framerate
+    '-r', '60',                      // Set stable 60fps (MPEG-1 specification maximum limit)
+    '-threads', '0',                 // Enable multi-threaded encoding
+    '-b:v', '4000k',                 // Higher bitrate for clarity
     '-preset', 'ultrafast',          // Low latency preset
     '-tune', 'zerolatency',          // Zero latency tuning
     '-an',                           // Disable Audio (not needed for preview)
@@ -52,11 +54,15 @@ wss.on('connection', (ws, req) => {
 
   ws.on('close', () => {
     console.log('[RTSP-Proxy] Client disconnected, killing ffmpeg process');
-    ffmpeg.kill('SIGINT');
+    try {
+      ffmpeg.kill('SIGKILL');
+    } catch (e) {}
   });
 
   ws.on('error', (err) => {
     console.error('[RTSP-Proxy] WebSocket error:', err.message);
-    ffmpeg.kill('SIGINT');
+    try {
+      ffmpeg.kill('SIGKILL');
+    } catch (e) {}
   });
 });

@@ -63,7 +63,7 @@
 
 .stream-settings {
   display: grid;
-  grid-template-columns: 1fr 150px auto;
+  grid-template-columns: 1fr auto;
   gap: 12px;
   align-items: flex-end;
 }
@@ -101,8 +101,14 @@
   border-color: #3b82f6;
 }
 
-.button-group button {
-  width: 100%;
+.button-group.horizontal-buttons {
+  display: flex;
+  gap: 8px;
+}
+
+.button-group.horizontal-buttons button {
+  width: auto;
+  white-space: nowrap;
 }
 
 .btn {
@@ -128,6 +134,28 @@
 .btn-primary:disabled {
   background: rgba(59, 130, 246, 0.4);
   cursor: not-allowed;
+}
+
+.btn-secondary {
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  color: #cbd5e1;
+}
+
+.btn-secondary:hover {
+  background: rgba(255, 255, 255, 0.2);
+  color: #fff;
+}
+
+.btn-warning {
+  background: rgba(245, 158, 11, 0.2);
+  border: 1px solid rgba(245, 158, 11, 0.35);
+  color: #fbbf24;
+}
+
+.btn-warning:hover {
+  background: rgba(245, 158, 11, 0.35);
+  color: #fff;
 }
 
 .btn-danger {
@@ -164,6 +192,17 @@
   object-fit: contain;
 }
 
+.yolo-overlay-canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  pointer-events: none;
+  z-index: 10;
+}
+
 .canvas-placeholder {
   position: absolute;
   top: 0;
@@ -193,4 +232,8 @@
 @keyframes pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.6; }
+}
+
+.canvas-wrapper.flipped-vertical .video-canvas {
+  transform: rotate(180deg);
 }

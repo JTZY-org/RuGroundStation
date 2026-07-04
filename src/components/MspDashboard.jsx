@@ -91,6 +91,16 @@ export function MspDashboard({ onYoloBoxUpdate, rtspConnected }) {
     const decoded = decodeMSPPayload(frame.command, frame.payload);
 
     if (decoded) {
+      // --- Side effects outside the updater (updater must be pure) ---
+      if (frame.command === MSP_COMMANDS.MSP_RU_CUSTOM_MESSAGE) {
+        if (decoded.isYolo) {
+          if (onYoloBoxUpdate) onYoloBoxUpdate(decoded);
+        } else if (decoded.rawHex) {
+          addLog(`CMD31 [${decoded.rawHex}]`, 'rx');
+        }
+      }
+
+      // --- Pure state update ---
       setTelemetry(prev => {
         const nextState = { ...prev };
         
@@ -114,16 +124,9 @@ export function MspDashboard({ onYoloBoxUpdate, rtspConnected }) {
           nextState.bitrateKbps = decoded.bitrateKbps;
         }
         else if (frame.command === MSP_COMMANDS.MSP_RU_CUSTOM_MESSAGE) {
-          if (decoded.isYolo) {
-            if (onYoloBoxUpdate) {
-              onYoloBoxUpdate(decoded);
-            }
-          } else {
+          if (!decoded.isYolo) {
             nextState.customMessage = decoded.message || '';
             nextState.customLength = decoded.length || 0;
-            if (decoded.rawHex) {
-              addLog(`CMD31 [${decoded.rawHex}]`, 'rx');
-            }
           }
         }
 

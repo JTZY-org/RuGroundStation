@@ -31,7 +31,6 @@ export function MspDashboard({ onYoloBoxUpdate, rtspConnected, deviceIp }) {
   });
 
   // Custom Command Input State
-  const [customCmdId, setCustomCmdId] = useState('31');
   const [customPayloadHex, setCustomPayloadHex] = useState('');
 
   // Polling settings (Sequential poll cycle of actual GClient telemetry)
@@ -232,11 +231,7 @@ export function MspDashboard({ onYoloBoxUpdate, rtspConnected, deviceIp }) {
   };
 
   const sendCustomCommand = () => {
-    const cmd = parseInt(customCmdId, 10);
-    if (isNaN(cmd)) {
-      addLog('Invalid Command ID', 'error');
-      return;
-    }
+    const cmd = 31; // MSP_RU_CUSTOM_MESSAGE
 
     let payload = [];
     if (customPayloadHex.trim().length > 0) {
@@ -252,7 +247,8 @@ export function MspDashboard({ onYoloBoxUpdate, rtspConnected, deviceIp }) {
     }
 
     sendCommand(cmd, payload);
-    addLog(`Sent custom command ${cmd} with payload [${payload.join(', ')}]`, 'tx');
+    const hexStr = payload.map(x => '0x' + x.toString(16).toUpperCase().padStart(2, '0')).join(' ');
+    addLog(`Sent CMD 31 with payload: [${hexStr}]`, 'tx');
   };
 
   const clearLogs = () => setLogs([]);
@@ -362,28 +358,19 @@ export function MspDashboard({ onYoloBoxUpdate, rtspConnected, deviceIp }) {
 
       {/* Manual Commands & Log Console */}
       <div className="custom-cmd-section">
-        <h4>Manual Overrides</h4>
+        <h4>Manual Custom Message (CMD 31)</h4>
         <div className="custom-cmd-inputs">
-          <div className="input-group">
-            <label>CMD ID (Dec)</label>
-            <input 
-              type="number" 
-              value={customCmdId} 
-              onChange={(e) => setCustomCmdId(e.target.value)} 
-              placeholder="e.g. 101"
-            />
-          </div>
           <div className="input-group" style={{ flex: 1 }}>
             <label>Payload (Hex Bytes, space separated)</label>
             <input 
               type="text" 
               value={customPayloadHex} 
               onChange={(e) => setCustomPayloadHex(e.target.value)} 
-              placeholder="e.g. 00 6C or leave empty"
+              placeholder="e.g. AA BB CC or leave empty"
             />
           </div>
           <button className="btn btn-primary" onClick={sendCustomCommand} disabled={!isConnected}>
-            Send Command
+            Send CMD 31
           </button>
         </div>
       </div>

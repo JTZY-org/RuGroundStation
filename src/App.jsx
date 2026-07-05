@@ -6,6 +6,7 @@ import './App.css';
 function App() {
   const [yoloBox, setYoloBox] = React.useState(null);
   const [rtspConnected, setRtspConnected] = React.useState(false);
+  const [deviceIp, setDeviceIp] = React.useState('192.168.222.1');
 
   return (
     <div className="app-container">
@@ -22,11 +23,20 @@ function App() {
       <main className="app-main">
         <div className="tester-grid">
           <div className="grid-col video-section">
-            <VideoPlayer yoloBox={yoloBox} onRtspConnected={setRtspConnected} />
+            <VideoPlayer 
+              yoloBox={yoloBox} 
+              onRtspConnected={setRtspConnected} 
+              deviceIp={deviceIp}
+              onChangeDeviceIp={setDeviceIp}
+            />
           </div>
           
           <div className="grid-col dashboard-section">
-            <MspDashboard onYoloBoxUpdate={setYoloBox} rtspConnected={rtspConnected} />
+            <MspDashboard 
+              onYoloBoxUpdate={setYoloBox} 
+              rtspConnected={rtspConnected} 
+              deviceIp={deviceIp}
+            />
           </div>
         </div>
       </main>

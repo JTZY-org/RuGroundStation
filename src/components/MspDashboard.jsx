@@ -8,8 +8,8 @@ import {
 } from '../utils/mspProtocol';
 import './MspDashboard.css';
 
-export function MspDashboard({ onYoloBoxUpdate, rtspConnected }) {
-  const [wsUrl, setWsUrl] = useState('ws://192.168.222.1:27015');
+export function MspDashboard({ onYoloBoxUpdate, rtspConnected, deviceIp }) {
+  const wsUrl = `ws://${deviceIp}:27015`;
   const [isConnected, setIsConnected] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
   
@@ -274,7 +274,7 @@ export function MspDashboard({ onYoloBoxUpdate, rtspConnected }) {
         clearTimeout(reconnectTimerRef.current);
       }
     };
-  }, [rtspConnected]);
+  }, [rtspConnected, wsUrl]);
 
   return (
     <div className="msp-card">

@@ -1,13 +1,13 @@
 import React, { useEffect, useRef, useState } from 'react';
 import './VideoPlayer.css';
 
-export function VideoPlayer({ yoloBox, onRtspConnected, defaultRtspUrl = 'rtsp://192.168.222.1:554/live' }) {
+export function VideoPlayer({ yoloBox, onRtspConnected, deviceIp, onChangeDeviceIp }) {
   const canvasRef = useRef(null);
   const overlayRef = useRef(null);
   const playerRef = useRef(null);
   const clearTimerRef = useRef(null);
 
-  const [rtspUrl, setRtspUrl] = useState(defaultRtspUrl);
+  const rtspUrl = `rtsp://${deviceIp}:554/live`;
   const proxyUrl = 'ws://localhost:9999';
   const [isPlaying, setIsPlaying] = useState(false);
   const [isFlipped, setIsFlipped] = useState(true); // Default to true (corrects upside down feed)
@@ -168,12 +168,12 @@ export function VideoPlayer({ yoloBox, onRtspConnected, defaultRtspUrl = 'rtsp:/
 
       <div className="stream-settings">
         <div className="input-group">
-          <label>RTSP URL</label>
+          <label>Device IP</label>
           <input 
             type="text" 
-            value={rtspUrl} 
-            onChange={(e) => setRtspUrl(e.target.value)} 
-            placeholder="rtsp://..."
+            value={deviceIp} 
+            onChange={(e) => onChangeDeviceIp(e.target.value)} 
+            placeholder="e.g. 192.168.222.1"
           />
         </div>
         <div className="button-group horizontal-buttons">

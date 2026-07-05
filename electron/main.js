@@ -3,9 +3,19 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { spawn } from 'child_process';
 import { WebSocketServer } from 'ws';
+import fs from 'fs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+const LOG_FILE = path.join(app.getPath('userData'), 'app-debug.log');
+function log(msg) {
+  const time = new Date().toISOString();
+  fs.appendFileSync(LOG_FILE, `[${time}] ${msg}\n`);
+}
+
+const FFMPEG_PATH = path.join(__dirname, 'bin', 'ffmpeg.exe');
+log(`App starting. isPackaged: ${app.isPackaged}, __dirname: ${__dirname}, ffmpegExists: ${fs.existsSync(FFMPEG_PATH)}`);
 
 let mainWindow = null;
 let wss = null;
@@ -41,7 +51,9 @@ function startRtspProxy() {
       '-'
     ];
 
-    const ffmpeg = spawn('ffmpeg', ffmpegParams);
+    const ffmpegCmd = fs.existsSync(FFMPEG_PATH) ? FFMPEG_PATH : 'ffmpeg';
+    log(`Spawning FFmpeg from: ${ffmpegCmd}`);
+    const ffmpeg = spawn(ffmpegCmd, ffmpegParams);
     activeFfmpgProcesses.add(ffmpeg);
 
     ffmpeg.stdout.on('data', (data) => {
@@ -94,32 +106,49 @@ function stopRtspProxy() {
 }
 
 function createWindow() {
-  mainWindow = new BrowserWindow({
-    width: 1300,
-    height: 900,
-    title: "RuAPS Ground Station Tester",
-    webPreferences: {
-      nodeIntegration: false,
-      contextIsolation: true
+  try {
+    log('createWindow() called');
+    mainWindow = new BrowserWindow({
+      width: 1300,
+      height: 900,
+      title: "RuAPS Ground Station Tester",
+      webPreferences: {
+        nodeIntegration: false,
+        contextIsolation: true
+      }
+    });
+
+    // Remove default menu bar
+    mainWindow.setMenuBarVisibility(false);
+
+    // In development, load from local Vite server. In production, load the built files.
+    const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
+    if (isDev) {
+      log('Loading dev server URL');
+      mainWindow.loadURL('http://localhost:5173');
+      // Open DevTools in dev mode
+      mainWindow.webContents.openDevTools();
+    } else {
+      const indexPath = path.join(__dirname, '../dist/index.html');
+      log(`Loading HTML from: ${indexPath}. File exists: ${fs.existsSync(indexPath)}`);
+      mainWindow.loadFile(indexPath);
     }
-  });
 
-  // Remove default menu bar
-  mainWindow.setMenuBarVisibility(false);
+    mainWindow.webContents.on('did-fail-load', (event, errorCode, errorDescription, validatedURL) => {
+      log(`[Renderer] Failed to load URL: ${validatedURL}, Error: ${errorDescription} (${errorCode})`);
+    });
 
-  // In development, load from local Vite server. In production, load the built files.
-  const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
-  if (isDev) {
-    mainWindow.loadURL('http://localhost:5173');
-    // Open DevTools in dev mode
-    mainWindow.webContents.openDevTools();
-  } else {
-    mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));
+    mainWindow.webContents.on('render-process-gone', (event, details) => {
+      log(`[Renderer] Render process gone: ${details.reason}, exitCode: ${details.exitCode}`);
+    });
+
+    mainWindow.on('closed', () => {
+      log('Window closed event');
+      mainWindow = null;
+    });
+  } catch (err) {
+    log(`Error in createWindow: ${err.message}\n${err.stack}`);
   }
-
-  mainWindow.on('closed', () => {
-    mainWindow = null;
-  });
 }
 
 app.whenReady().then(() => {

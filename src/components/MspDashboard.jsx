@@ -32,6 +32,86 @@ export function MspDashboard({ onYoloBoxUpdate, rtspConnected, deviceIp }) {
 
   // Custom Command Input State
   const [customPayloadHex, setCustomPayloadHex] = useState('');
+  const [newShortcutName, setNewShortcutName] = useState('');
+  const [shortcuts, setShortcuts] = useState(() => {
+    try {
+      const saved = localStorage.getItem('msp_shortcuts');
+      return saved ? JSON.parse(saved) : [
+        { name: 'DISARM', payload: 'CC 01' },
+        { name: 'ARM', payload: 'CC 00' },
+        { name: 'LAND', payload: 'B0 01' }
+      ];
+    } catch (e) {
+      return [];
+    }
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('msp_shortcuts', JSON.stringify(shortcuts));
+    } catch (e) {
+      console.error('Failed to save shortcuts:', e);
+    }
+  }, [shortcuts]);
+
+  const saveShortcut = () => {
+    const trimmedName = newShortcutName.trim();
+    if (!trimmedName) {
+      addLog('Please enter a shortcut name', 'warning');
+      return;
+    }
+    const duplicate = shortcuts.find(s => s.name.trim().toLowerCase() === trimmedName.toLowerCase());
+    if (duplicate) {
+      addLog(`Shortcut named "${trimmedName}" already exists.`, 'warning');
+      return;
+    }
+    const newShortcuts = [...shortcuts, { name: trimmedName, payload: customPayloadHex }];
+    setShortcuts(newShortcuts);
+    setNewShortcutName('');
+    addLog(`Saved shortcut "${trimmedName}" with payload: ${customPayloadHex || '(empty)'}`, 'success');
+  };
+
+  const deleteShortcut = (e, nameToDelete) => {
+    e.stopPropagation();
+    const newShortcuts = shortcuts.filter(s => s.name !== nameToDelete);
+    setShortcuts(newShortcuts);
+    addLog(`Deleted shortcut "${nameToDelete}"`, 'info');
+  };
+
+  const resetShortcuts = () => {
+    const defaults = [
+      { name: 'DISARM', payload: 'CC 01' },
+      { name: 'ARM', payload: 'CC 00' },
+      { name: 'LAND', payload: 'B0 01' }
+    ];
+    setShortcuts(defaults);
+    addLog('Reset shortcuts to defaults', 'info');
+  };
+
+  const runShortcut = (shortcut) => {
+    setCustomPayloadHex(shortcut.payload);
+    
+    let payload = [];
+    if (shortcut.payload.trim().length > 0) {
+      const parts = shortcut.payload.trim().split(/\s+/);
+      for (const part of parts) {
+        const val = parseInt(part, 16);
+        if (isNaN(val) || val < 0 || val > 255) {
+          addLog(`Invalid payload hex byte in shortcut: ${part}`, 'error');
+          return;
+        }
+        payload.push(val);
+      }
+    }
+
+    if (isConnected) {
+      sendCommand(31, payload);
+      const hexStr = payload.map(x => '0x' + x.toString(16).toUpperCase().padStart(2, '0')).join(' ');
+      addLog(`Sent Shortcut "${shortcut.name}" (CMD 31): [${hexStr}]`, 'tx');
+    } else {
+      addLog(`Selected Shortcut "${shortcut.name}". Connect to send.`, 'info');
+    }
+  };
 
   // Polling settings (Sequential poll cycle of actual GClient telemetry)
   // CMD31 (MSP_RU_CUSTOM_MESSAGE) is interleaved frequently to avoid missing
@@ -359,8 +439,44 @@ export function MspDashboard({ onYoloBoxUpdate, rtspConnected, deviceIp }) {
       {/* Manual Commands & Log Console */}
       <div className="custom-cmd-section">
         <h4>Manual Custom Message (CMD 31)</h4>
+
+        {/* Shortcuts List */}
+        <div className="shortcut-buttons-list">
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <span className="shortcuts-label">Shortcuts:</span>
+            <button className="btn-clear" onClick={resetShortcuts} style={{ fontSize: '0.7rem', color: '#94a3b8' }}>
+              (Reset Defaults)
+            </button>
+          </div>
+          <div className="shortcut-items">
+            {shortcuts.map((sc, i) => (
+              <div key={i} className="shortcut-btn-wrapper">
+                <button 
+                  className="shortcut-btn" 
+                  onClick={() => runShortcut(sc)}
+                  title={`Payload: ${sc.payload || 'empty'}`}
+                >
+                  {sc.name}
+                </button>
+                <button 
+                  className="shortcut-delete-btn" 
+                  onClick={(e) => deleteShortcut(e, sc.name)}
+                  title="Delete shortcut"
+                >
+                  ×
+                </button>
+              </div>
+            ))}
+            {shortcuts.length === 0 && (
+              <span style={{ fontSize: '0.75rem', color: '#475569', fontStyle: 'italic' }}>
+                No shortcuts saved. Type payload and name to save one.
+              </span>
+            )}
+          </div>
+        </div>
+
         <div className="custom-cmd-inputs">
-          <div className="input-group" style={{ flex: 1 }}>
+          <div className="input-group" style={{ flex: 2 }}>
             <label>Payload (Hex Bytes, space separated)</label>
             <input 
               type="text" 
@@ -369,7 +485,32 @@ export function MspDashboard({ onYoloBoxUpdate, rtspConnected, deviceIp }) {
               placeholder="e.g. AA BB CC or leave empty"
             />
           </div>
-          <button className="btn btn-primary" onClick={sendCustomCommand} disabled={!isConnected}>
+
+          <div className="input-group" style={{ flex: 1.5 }}>
+            <label>Shortcut Name</label>
+            <div className="save-shortcut-group">
+              <input 
+                type="text" 
+                value={newShortcutName} 
+                onChange={(e) => setNewShortcutName(e.target.value)} 
+                placeholder="Save as..."
+              />
+              <button 
+                className="btn btn-secondary btn-add-shortcut" 
+                onClick={saveShortcut}
+                title="Save current payload as shortcut"
+              >
+                Save
+              </button>
+            </div>
+          </div>
+
+          <button 
+            className="btn btn-primary" 
+            onClick={sendCustomCommand} 
+            disabled={!isConnected}
+            style={{ height: '38px', alignSelf: 'flex-end', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+          >
             Send CMD 31
           </button>
         </div>

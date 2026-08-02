@@ -6,7 +6,7 @@ import './App.css';
 function App() {
   const [yoloBox, setYoloBox] = React.useState(null);
   const [rtspConnected, setRtspConnected] = React.useState(false);
-  const [deviceIp, setDeviceIp] = React.useState('192.168.222.1');
+  const [deviceIp, setDeviceIp] = React.useState('192.168.223.1');
 
   return (
     <div className="app-container">

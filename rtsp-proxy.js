@@ -2,7 +2,7 @@ import { spawn } from 'child_process';
 import { WebSocketServer } from 'ws';
 
 const WS_PORT = 9999;
-const DEFAULT_RTSP_URL = 'rtsp://192.168.222.1:554/live';
+const DEFAULT_RTSP_URL = 'rtsp://192.168.223.1:554/live';
 
 const wss = new WebSocketServer({ port: WS_PORT });
 console.log(`[RTSP-Proxy] WebSocket server listening on ws://localhost:${WS_PORT}`);

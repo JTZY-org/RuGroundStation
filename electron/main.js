@@ -22,7 +22,7 @@ let wss = null;
 let activeFfmpgProcesses = new Set();
 
 const WS_PORT = 9999;
-const DEFAULT_RTSP_URL = 'rtsp://192.168.222.1:554/live';
+const DEFAULT_RTSP_URL = 'rtsp://192.168.223.1:554/live';
 
 // Initialize the RTSP WebSocket Proxy inside Electron Main Process
 function startRtspProxy() {
@@ -136,6 +136,14 @@ function createWindow() {
 
     mainWindow.webContents.on('did-fail-load', (event, errorCode, errorDescription, validatedURL) => {
       log(`[Renderer] Failed to load URL: ${validatedURL}, Error: ${errorDescription} (${errorCode})`);
+      if (isDev && validatedURL.startsWith('http://localhost:5173')) {
+        log('Retrying connection to dev server in 1000ms...');
+        setTimeout(() => {
+          if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.loadURL('http://localhost:5173');
+          }
+        }, 1000);
+      }
     });
 
     mainWindow.webContents.on('render-process-gone', (event, details) => {

@@ -494,3 +494,113 @@
     box-shadow: 0 0 12px 2px rgba(239, 68, 68, 0.6);
   }
 }
+
+/* Shortcut Commands styling */
+.shortcut-buttons-list {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+
+.shortcuts-label {
+  font-size: 0.75rem;
+  color: #64748b;
+  text-transform: uppercase;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+}
+
+.shortcut-items {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.shortcut-btn-wrapper {
+  display: inline-flex;
+  align-items: center;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+  overflow: hidden;
+  transition: all 0.2s;
+}
+
+.shortcut-btn-wrapper:hover {
+  border-color: rgba(255, 255, 255, 0.25);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.shortcut-btn {
+  background: transparent !important;
+  border: none !important;
+  padding: 4px 10px !important;
+  font-size: 0.75rem !important;
+  font-weight: 600 !important;
+  color: #cbd5e1 !important;
+  cursor: pointer;
+  outline: none;
+  transition: color 0.2s;
+  height: 24px;
+  display: flex;
+  align-items: center;
+}
+
+.shortcut-btn:hover {
+  color: #fff !important;
+}
+
+.shortcut-delete-btn {
+  background: transparent;
+  border: none;
+  border-left: 1px solid rgba(255, 255, 255, 0.1);
+  color: #ef4444;
+  padding: 0 6px;
+  font-size: 0.95rem;
+  font-weight: bold;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 24px;
+  transition: all 0.2s;
+}
+
+.shortcut-delete-btn:hover {
+  background: rgba(239, 68, 68, 0.15);
+  color: #f87171;
+}
+
+.save-shortcut-group {
+  display: flex;
+  gap: 6px;
+  width: 100%;
+}
+
+.save-shortcut-group input {
+  flex: 1;
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 4px;
+  padding: 8px 10px;
+  color: #fff;
+  font-size: 0.85rem;
+  outline: none;
+}
+
+.save-shortcut-group input:focus {
+  border-color: #3b82f6;
+}
+
+.btn-add-shortcut {
+  padding: 4px 12px !important;
+  font-size: 0.8rem !important;
+  white-space: nowrap;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+

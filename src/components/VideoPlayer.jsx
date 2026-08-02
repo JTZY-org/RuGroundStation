@@ -173,7 +173,7 @@ export function VideoPlayer({ yoloBox, onRtspConnected, deviceIp, onChangeDevice
             type="text" 
             value={deviceIp} 
             onChange={(e) => onChangeDeviceIp(e.target.value)} 
-            placeholder="e.g. 192.168.222.1"
+            placeholder="e.g. 192.168.223.1"
           />
         </div>
         <div className="button-group horizontal-buttons">

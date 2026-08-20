@@ -7,6 +7,7 @@
   "homepage": ".",
   "scripts": {
     "dev": "vite",
+    "start": "vite build && electron .",
     "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview",

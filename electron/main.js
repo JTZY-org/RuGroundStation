@@ -1,21 +1,42 @@
-import { app, BrowserWindow } from 'electron';
+import electron from 'electron';
+const { app, BrowserWindow } = electron;
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { spawn } from 'child_process';
 import { WebSocketServer } from 'ws';
 import fs from 'fs';
+import http from 'http';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const LOG_FILE = path.join(app.getPath('userData'), 'app-debug.log');
-function log(msg) {
-  const time = new Date().toISOString();
-  fs.appendFileSync(LOG_FILE, `[${time}] ${msg}\n`);
+function getLogFile() {
+  try {
+    if (app && typeof app.getPath === 'function') {
+      return path.join(app.getPath('userData'), 'app-debug.log');
+    }
+  } catch (e) {}
+  return path.join(process.cwd(), 'app-debug.log');
 }
 
+function log(msg) {
+  try {
+    const time = new Date().toISOString();
+    fs.appendFileSync(getLogFile(), `[${time}] ${msg}\n`);
+  } catch (e) {}
+}
+
+// Disable hardware acceleration and direct composition to prevent GetGpuDriverOverlayInfo driver hangs on Windows
+try {
+  app.disableHardwareAcceleration();
+  app.commandLine.appendSwitch('disable-gpu');
+  app.commandLine.appendSwitch('disable-gpu-compositing');
+  app.commandLine.appendSwitch('disable-direct-composition');
+  app.commandLine.appendSwitch('disable-features', 'DirectCompositionOverlays,DirectComposition,CalculateNativeWinOcclusion');
+  app.commandLine.appendSwitch('no-sandbox');
+} catch (e) {}
+
 const FFMPEG_PATH = path.join(__dirname, 'bin', 'ffmpeg.exe');
-log(`App starting. isPackaged: ${app.isPackaged}, __dirname: ${__dirname}, ffmpegExists: ${fs.existsSync(FFMPEG_PATH)}`);
 
 let mainWindow = null;
 let wss = null;
@@ -114,20 +135,54 @@ function createWindow() {
       title: "RuAPS Ground Station Tester",
       webPreferences: {
         nodeIntegration: false,
-        contextIsolation: true
+        contextIsolation: true,
+        webSecurity: false
       }
     });
 
     // Remove default menu bar
     mainWindow.setMenuBarVisibility(false);
 
-    // In development, load from local Vite server. In production, load the built files.
+    // Automatically open DevTools docked to the right in dev mode
+    mainWindow.webContents.openDevTools({ mode: 'right' });
+
+    // Enable F12 and Ctrl+Shift+I shortcut to toggle DevTools
+    mainWindow.webContents.on('before-input-event', (event, input) => {
+      if (input.key === 'F12' || (input.control && input.shift && input.key.toLowerCase() === 'i')) {
+        mainWindow.webContents.toggleDevTools();
+        event.preventDefault();
+      }
+    });
+
+    // Log renderer console messages to terminal and log file
+    mainWindow.webContents.on('console-message', (event, level, message, line, sourceId) => {
+      console.log(`[Renderer] ${message}`);
+      log(`[Renderer] ${message}`);
+    });
+
+    // In development, wait for local Vite server to be ready before loading
     const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
     if (isDev) {
-      log('Loading dev server URL');
-      mainWindow.loadURL('http://localhost:5173');
-      // Open DevTools in dev mode
-      mainWindow.webContents.openDevTools();
+      log('Waiting for Vite dev server (http://localhost:5173)...');
+      const checkAndLoad = () => {
+        const req = http.get('http://localhost:5173', (res) => {
+          log('Vite dev server is ready, loading URL');
+          if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.loadURL('http://localhost:5173');
+          }
+        });
+        req.on('error', () => {
+          setTimeout(() => {
+            if (mainWindow && !mainWindow.isDestroyed()) {
+              checkAndLoad();
+            }
+          }, 200);
+        });
+        req.setTimeout(500, () => {
+          req.destroy();
+        });
+      };
+      checkAndLoad();
     } else {
       const indexPath = path.join(__dirname, '../dist/index.html');
       log(`Loading HTML from: ${indexPath}. File exists: ${fs.existsSync(indexPath)}`);

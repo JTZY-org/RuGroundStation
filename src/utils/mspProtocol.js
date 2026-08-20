@@ -191,34 +191,68 @@ export const decodeMSPPayload = (command, payload) => {
       if (payload.length === 0) return { message: "(No message / queue empty)" };
       const length = view.getUint8(0);
 
-      // Case A: length byte is present (length = 15, first byte of data is 0xFE)
-      if (length === 15 && payload.length >= 16 && view.getUint8(1) === 0xFE) {
-        const parsed = {
+      // Case A1: length byte is present (length = 17, first byte of data is 0xFE, total >= 18)
+      if (length === 17 && payload.length >= 18 && view.getUint8(1) === 0xFE) {
+        return {
           isYolo: true,
+          id: view.getUint16(2, true),
           targetId: view.getUint16(2, true),
           classId: view.getUint16(4, true),
           confidence: view.getUint16(6, true),
           x1: view.getUint16(8, true),
           y1: view.getUint16(10, true),
           x2: view.getUint16(12, true),
-          y2: view.getUint16(14, true)
+          y2: view.getUint16(14, true),
+          trackId: view.getUint16(16, true)
         };
-        return parsed;
       }
 
-      // Case B: length byte is omitted (first byte of payload is 0xFE, payload size is 15)
-      if (payload.length === 15 && view.getUint8(0) === 0xFE) {
-        const parsed = {
+      // Case A2: length byte is omitted (first byte of payload is 0xFE, payload size is 17)
+      if (payload.length === 17 && view.getUint8(0) === 0xFE) {
+        return {
           isYolo: true,
+          id: view.getUint16(1, true),
           targetId: view.getUint16(1, true),
           classId: view.getUint16(3, true),
           confidence: view.getUint16(5, true),
           x1: view.getUint16(7, true),
           y1: view.getUint16(9, true),
           x2: view.getUint16(11, true),
-          y2: view.getUint16(13, true)
+          y2: view.getUint16(13, true),
+          trackId: view.getUint16(15, true)
         };
-        return parsed;
+      }
+
+      // Case B1: legacy length = 15
+      if (length === 15 && payload.length >= 16 && view.getUint8(1) === 0xFE) {
+        return {
+          isYolo: true,
+          id: view.getUint16(2, true),
+          targetId: view.getUint16(2, true),
+          classId: view.getUint16(4, true),
+          confidence: view.getUint16(6, true),
+          x1: view.getUint16(8, true),
+          y1: view.getUint16(10, true),
+          x2: view.getUint16(12, true),
+          y2: view.getUint16(14, true),
+          trackId: view.getUint16(2, true)
+        };
+      }
+
+      // Case B2: legacy payload.length = 15
+      if (payload.length === 15 && view.getUint8(0) === 0xFE) {
+        return {
+          isYolo: true,
+          id: view.getUint16(1, true),
+          targetId: view.getUint16(1, true),
+          classId: view.getUint16(3, true),
+          confidence: view.getUint16(5, true),
+          x1: view.getUint16(7, true),
+          y1: view.getUint16(9, true),
+          x2: view.getUint16(11, true),
+          y2: view.getUint16(13, true),
+          trackId: view.getUint16(1, true)
+        };
       }
 
       const textDecoder = new TextDecoder();

@@ -5,7 +5,7 @@ import './App.css';
 
 function App() {
   const [yoloBox, setYoloBox] = React.useState(null);
-  const [rtspConnected, setRtspConnected] = React.useState(false);
+  const [streamConnected, setStreamConnected] = React.useState(false);
   const [deviceIp, setDeviceIp] = React.useState('192.168.223.1');
 
   return (
@@ -16,7 +16,7 @@ function App() {
           <h1>RuAPS Ground Station Tester</h1>
         </div>
         <div className="header-subtitle">
-          RTSP Live Stream & MSP Telemetry Client
+          WebRTC Ultra-Low Latency Stream & MSP Telemetry Client
         </div>
       </header>
 
@@ -25,7 +25,7 @@ function App() {
           <div className="grid-col video-section">
             <VideoPlayer 
               yoloBox={yoloBox} 
-              onRtspConnected={setRtspConnected} 
+              onStreamConnected={setStreamConnected} 
               deviceIp={deviceIp}
               onChangeDeviceIp={setDeviceIp}
             />
@@ -34,7 +34,7 @@ function App() {
           <div className="grid-col dashboard-section">
             <MspDashboard 
               onYoloBoxUpdate={setYoloBox} 
-              rtspConnected={rtspConnected} 
+              streamConnected={streamConnected} 
               deviceIp={deviceIp}
             />
           </div>

@@ -3,55 +3,21 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
-  "main": "electron/main.js",
-  "homepage": ".",
   "scripts": {
     "dev": "vite",
-    "start": "vite build && electron .",
     "build": "vite build",
     "lint": "eslint .",
-    "preview": "vite preview",
-    "proxy": "node rtsp-proxy.js",
-    "electron:dev": "concurrently -k \"npm run dev\" \"electron .\"",
-    "dist": "npm run build && electron-builder"
-  },
-  "build": {
-    "appId": "com.ruaps.groundstation",
-    "productName": "RuAPS Ground Station Tester",
-    "asar": false,
-    "directories": {
-      "output": "release"
-    },
-    "files": [
-      "dist/**/*",
-      "electron/**/*",
-      "package.json"
-    ],
-    "win": {
-      "target": [
-        "nsis"
-      ]
-    },
-    "nsis": {
-      "oneClick": false,
-      "allowToChangeInstallationDirectory": true,
-      "createDesktopShortcut": true,
-      "createStartMenuShortcut": true
-    }
+    "preview": "vite preview"
   },
   "dependencies": {
     "react": "^19.2.7",
-    "react-dom": "^19.2.7",
-    "ws": "^8.21.0"
+    "react-dom": "^19.2.7"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.3",
-    "concurrently": "^10.0.3",
-    "electron": "^43.0.0",
-    "electron-builder": "^26.15.3",
     "eslint": "^10.6.0",
     "eslint-plugin-react-hooks": "^7.1.1",
     "eslint-plugin-react-refresh": "^0.5.3",
@@ -59,3 +25,4 @@
     "vite": "^8.1.1"
   }
 }
+

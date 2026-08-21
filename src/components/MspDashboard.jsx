@@ -8,7 +8,8 @@ import {
 } from '../utils/mspProtocol';
 import './MspDashboard.css';
 
-export function MspDashboard({ onYoloBoxUpdate, rtspConnected, deviceIp }) {
+export function MspDashboard({ onYoloBoxUpdate, streamConnected, rtspConnected, deviceIp }) {
+  const isStreamActive = streamConnected !== undefined ? streamConnected : rtspConnected;
   const wsUrl = `ws://${deviceIp}:27015`;
   const [isConnected, setIsConnected] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
@@ -155,7 +156,7 @@ export function MspDashboard({ onYoloBoxUpdate, rtspConnected, deviceIp }) {
     pollTimerRef.current = setTimeout(() => {
       currentPollIndex.current = (currentPollIndex.current + 1) % pollCycle.current.length;
       pollNext();
-    }, 150); // Timeout fallback
+    }, 60); // High-speed fallback timeout (60ms)
 
     const cmd = pollCycle.current[currentPollIndex.current];
     sendCommand(cmd);
@@ -213,13 +214,13 @@ export function MspDashboard({ onYoloBoxUpdate, rtspConnected, deviceIp }) {
       });
     }
 
-    // Process the loop immediately after a packet is received to maintain maximum rate
+    // Process the loop immediately after a packet is received to maintain maximum high-speed throughput (up to 300Hz+)
     if (isPollingRef.current && frame.command === pollCycle.current[currentPollIndex.current]) {
       if (pollTimerRef.current) clearTimeout(pollTimerRef.current);
       currentPollIndex.current = (currentPollIndex.current + 1) % pollCycle.current.length;
       
-      // Speed threshold: 10ms gap to keep a smooth flow and avoid network congestion
-      setTimeout(pollNext, 10);
+      // Immediate next poll tick for low-latency telemetry streaming
+      setTimeout(pollNext, 0);
     }
   }, [pollNext, onYoloBoxUpdate, addLog]);
 
@@ -333,9 +334,9 @@ export function MspDashboard({ onYoloBoxUpdate, rtspConnected, deviceIp }) {
 
   const clearLogs = () => setLogs([]);
 
-  // Connect to GClient only after RTSP is live; disconnect when RTSP drops
+  // Connect to GClient only after video stream is live; disconnect when stream drops
   useEffect(() => {
-    if (rtspConnected) {
+    if (isStreamActive) {
       connect();
     } else {
       disconnect();
@@ -350,7 +351,7 @@ export function MspDashboard({ onYoloBoxUpdate, rtspConnected, deviceIp }) {
         clearTimeout(reconnectTimerRef.current);
       }
     };
-  }, [rtspConnected, wsUrl]);
+  }, [isStreamActive, wsUrl]);
 
   return (
     <div className="msp-card">

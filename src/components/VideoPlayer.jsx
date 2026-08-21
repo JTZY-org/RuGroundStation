@@ -412,7 +412,8 @@ export function VideoPlayer({
   // Target cache to prevent flickering and support multiple persistent targets
   const targetsRef = useRef(new Map());
   const animFrameRef = useRef(null);
-  const [personOnly, setPersonOnly] = useState(true);
+  const [personOnly, setPersonOnly] = useState(false); // Default to false so all detected classes are shown
+  const [targetCount, setTargetCount] = useState(0);
 
   // Update target tracking cache when new YOLO detections arrive
   useEffect(() => {
@@ -423,7 +424,7 @@ export function VideoPlayer({
     detections.forEach((box) => {
       if (!box || box.x1 === undefined) return;
       
-      // Filter: Only identify person (COCO Class 0)
+      // Filter: Only identify person (COCO Class 0) if enabled
       const cid = box.classId !== undefined ? box.classId : 0;
       if (personOnly && cid !== 0) return;
 
@@ -439,7 +440,7 @@ export function VideoPlayer({
   const frameCountRef = useRef(0);
   const lastFpsCalcTimeRef = useRef(performance.now());
 
-  // Smooth flicker-free high-FPS (up to 300+ FPS) render loop for canvas overlay mapped to <video>
+  // Smooth flicker-free high-FPS render loop for canvas overlay mapped to <video>
   useEffect(() => {
     if (!isPlaying) {
       if (overlayRef.current) {
@@ -448,6 +449,7 @@ export function VideoPlayer({
       }
       targetsRef.current.clear();
       setFps(0);
+      setTargetCount(0);
       return;
     }
 
@@ -480,25 +482,49 @@ export function VideoPlayer({
           ctx.clearRect(0, 0, overlay.width, overlay.height);
 
           const now = Date.now();
-          // High-frequency responsive threshold (~50-60ms) for high FPS target tracking without trailing
-          const MAX_AGE_MS = 60; 
+          // Keep targets for up to 1000ms to eliminate network/polling jitter and flickering
+          const MAX_AGE_MS = 1000; 
 
+          let activeCount = 0;
           targetsRef.current.forEach((box, key) => {
             const age = now - box.lastSeen;
             if (age > MAX_AGE_MS) {
               targetsRef.current.delete(key);
               return;
             }
+            activeCount++;
 
             const { x1, y1, x2, y2, trackId, classId, id, targetId, confidence } = box;
-            const drawX1 = !isFlipped ? (overlay.width - x2) : x1;
-            const drawX2 = !isFlipped ? (overlay.width - x1) : x2;
-            const drawY1 = !isFlipped ? (overlay.height - y2) : y1;
-            const drawY2 = !isFlipped ? (overlay.height - y1) : y2;
+            
+            // Normalize in case coordinates are inverted or out of order
+            const minX = Math.min(x1, x2);
+            const maxX = Math.max(x1, x2);
+            const minY = Math.min(y1, y2);
+            const maxY = Math.max(y1, y2);
 
+            // Coordinate mapping (as per original architecture):
+            // The YOLO algorithm on the drone already outputs coordinates that are right-side up.
+            // When isFlipped is true (default): <video> is rotated 180° by CSS to correct the upside-down camera feed into a normal right-side-up view.
+            // Thus, the right-side-up YOLO coordinates align directly: (minX, minY).
+            // When isFlipped is false: raw uncorrected upside-down video is shown, so coordinates are rotated 180°: (overlay.width - maxX, overlay.height - maxY).
+            const drawX1 = !isFlipped ? (overlay.width - maxX) : minX;
+            const drawX2 = !isFlipped ? (overlay.width - minX) : maxX;
+            const drawY1 = !isFlipped ? (overlay.height - maxY) : minY;
+            const drawY2 = !isFlipped ? (overlay.height - minY) : maxY;
+
+            const boxWidth = Math.max(0, drawX2 - drawX1);
+            const boxHeight = Math.max(0, drawY2 - drawY1);
+
+            // Smooth fading opacity: 100% solid for the first 500ms, smooth fade-out from 500ms to 1000ms
+            const opacity = age <= 500 ? 1 : Math.max(0.2, 1 - (age - 500) / 500);
+
+            ctx.save();
+            ctx.globalAlpha = opacity;
+
+            // Draw bounding box rectangle
             ctx.strokeStyle = '#10b981'; // Emerald-500
             ctx.lineWidth = 3;
-            ctx.strokeRect(drawX1, drawY1, drawX2 - drawX1, drawY2 - drawY1);
+            ctx.strokeRect(drawX1, drawY1, boxWidth, boxHeight);
 
             // Draw label banner background
             const tid = trackId !== undefined ? trackId : (targetId !== undefined ? targetId : (id !== undefined ? id : 1));
@@ -508,13 +534,21 @@ export function VideoPlayer({
 
             ctx.font = 'bold 12px monospace';
             const textWidth = ctx.measureText(text).width;
-            ctx.fillStyle = 'rgba(16, 185, 129, 0.85)';
-            ctx.fillRect(drawX1, Math.max(0, drawY1 - 20), textWidth + 10, 20);
+            const bannerHeight = 20;
+            const bannerY = Math.max(0, drawY1 - bannerHeight);
 
-            // Draw label text
+            // Label background
+            ctx.fillStyle = 'rgba(16, 185, 129, 0.85)';
+            ctx.fillRect(drawX1, bannerY, textWidth + 10, bannerHeight);
+
+            // Label text
             ctx.fillStyle = '#ffffff';
-            ctx.fillText(text, drawX1 + 5, Math.max(14, drawY1 - 5));
+            ctx.fillText(text, drawX1 + 5, bannerY + 14);
+
+            ctx.restore();
           });
+
+          setTargetCount(activeCount);
         }
       }
 
@@ -551,6 +585,9 @@ export function VideoPlayer({
         <div className="header-badges">
           {isPlaying && fps > 0 && (
             <span className="status-badge fps-badge">{fps} FPS</span>
+          )}
+          {isPlaying && targetCount > 0 && (
+            <span className="status-badge target-badge">{targetCount} Target{targetCount > 1 ? 's' : ''}</span>
           )}
           <span className={`status-badge ${status.toLowerCase()}`}>{status}</span>
         </div>

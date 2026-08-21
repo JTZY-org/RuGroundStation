@@ -359,7 +359,7 @@
     const videoViewport = document.getElementById('videoViewport');
     const logBox = document.getElementById('logBox');
 
-    let isStreaming = false, isFlipped = true, personOnly = true, isWindowFullscreen = false;
+    let isStreaming = false, isFlipped = true, personOnly = false, isWindowFullscreen = false;
     let pc = null, signalingWs = null, mspWs = null, statsInterval = null;
     let lastBytes = 0, lastStatsTime = performance.now();
     const targetsCache = new Map();
@@ -529,15 +529,29 @@
           ctx.clearRect(0, 0, yoloCanvas.width, yoloCanvas.height);
           const now = Date.now();
           targetsCache.forEach((box, key) => {
-            if (now - box.lastSeen > 60) { targetsCache.delete(key); return; }
+            const age = now - box.lastSeen;
+            if (age > 1000) { targetsCache.delete(key); return; }
             const { x1, y1, x2, y2, trackId, classId, id, targetId, confidence } = box;
-            const drawX1 = !isFlipped ? (yoloCanvas.width - x2) : x1;
-            const drawX2 = !isFlipped ? (yoloCanvas.width - x1) : x2;
-            const drawY1 = !isFlipped ? (yoloCanvas.height - y2) : y1;
-            const drawY2 = !isFlipped ? (yoloCanvas.height - y1) : y2;
+            
+            const minX = Math.min(x1, x2);
+            const maxX = Math.max(x1, x2);
+            const minY = Math.min(y1, y2);
+            const maxY = Math.max(y1, y2);
+
+            const drawX1 = !isFlipped ? (yoloCanvas.width - maxX) : minX;
+            const drawX2 = !isFlipped ? (yoloCanvas.width - minX) : maxX;
+            const drawY1 = !isFlipped ? (yoloCanvas.height - maxY) : minY;
+            const drawY2 = !isFlipped ? (yoloCanvas.height - minY) : maxY;
+
+            const boxWidth = Math.max(0, drawX2 - drawX1);
+            const boxHeight = Math.max(0, drawY2 - drawY1);
+            const opacity = age <= 500 ? 1 : Math.max(0.2, 1 - (age - 500) / 500);
+
+            ctx.save();
+            ctx.globalAlpha = opacity;
 
             ctx.strokeStyle = '#10b981'; ctx.lineWidth = 3;
-            ctx.strokeRect(drawX1, drawY1, drawX2 - drawX1, drawY2 - drawY1);
+            ctx.strokeRect(drawX1, drawY1, boxWidth, boxHeight);
 
             const tid = trackId || targetId || id || 1;
             const conf = confidence > 1 ? confidence : Math.round(confidence * 100);
@@ -545,10 +559,13 @@
 
             ctx.font = 'bold 12px monospace';
             const tw = ctx.measureText(text).width;
+            const bannerY = Math.max(0, drawY1 - 20);
             ctx.fillStyle = 'rgba(16, 185, 129, 0.85)';
-            ctx.fillRect(drawX1, Math.max(0, drawY1 - 20), tw + 10, 20);
+            ctx.fillRect(drawX1, bannerY, tw + 10, 20);
             ctx.fillStyle = '#ffffff';
-            ctx.fillText(text, drawX1 + 5, Math.max(14, drawY1 - 5));
+            ctx.fillText(text, drawX1 + 5, bannerY + 14);
+
+            ctx.restore();
           });
         }
       }
@@ -665,21 +682,34 @@
           } else if (cmd === MSP.MSP_RU_VIDEO_INFO && payload.length >= 2) {
             document.getElementById('valBitrate').textContent = view.getUint16(0, true) + ' Kbps';
           } else if (cmd === MSP.MSP_RU_CUSTOM_MESSAGE && payload.length > 0) {
-            const len = payload[0];
-            const data = payload.slice(1, 1 + len);
-            if (len === 15 && data[0] === 0xFE) {
-              const dv = new DataView(data.buffer, data.byteOffset, data.byteLength);
-              const targetId = dv.getUint16(1, true);
-              const classId = dv.getUint16(3, true);
-              const confidence = dv.getUint16(5, true);
-              if (!personOnly || classId === 0) {
-                targetsCache.set(targetId, {
-                  targetId, classId, confidence,
-                  x1: dv.getUint16(7, true), y1: dv.getUint16(9, true),
-                  x2: dv.getUint16(11, true), y2: dv.getUint16(13, true),
-                  lastSeen: Date.now()
-                });
+            const parseYolo = (startOffset) => {
+              let curr = startOffset;
+              while (curr + 15 <= payload.length) {
+                if (view.getUint8(curr) !== 0xFE) break;
+                const hasTrackId = (curr + 17 <= payload.length) && (curr + 17 === payload.length || view.getUint8(curr + 17) === 0xFE || curr + 32 <= payload.length);
+                const targetId = view.getUint16(curr + 1, true);
+                const classId = view.getUint16(curr + 3, true);
+                const confidence = view.getUint16(curr + 5, true);
+                const x1 = view.getUint16(curr + 7, true);
+                const y1 = view.getUint16(curr + 9, true);
+                const x2 = view.getUint16(curr + 11, true);
+                const y2 = view.getUint16(curr + 13, true);
+                const trackId = hasTrackId ? view.getUint16(curr + 15, true) : targetId;
+                
+                if (!personOnly || classId === 0) {
+                  targetsCache.set(trackId, {
+                    targetId, classId, confidence, x1, y1, x2, y2, trackId,
+                    lastSeen: Date.now()
+                  });
+                }
+                curr += hasTrackId ? 17 : 15;
               }
+            };
+
+            if (payload.length >= 15 && view.getUint8(0) === 0xFE) {
+              parseYolo(0);
+            } else if (payload.length >= 16 && view.getUint8(1) === 0xFE) {
+              parseYolo(1);
             }
           }
 

@@ -63,6 +63,14 @@
   font-weight: 700;
 }
 
+.status-badge.target-badge {
+  color: #10b981;
+  background: rgba(16, 185, 129, 0.15);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  font-family: monospace;
+  font-weight: 700;
+}
+
 .status-badge.idle {
   color: #94a3b8;
   background: rgba(148, 163, 184, 0.15);

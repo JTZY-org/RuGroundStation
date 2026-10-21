@@ -1,5 +1,4 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { detectPersons, ensurePersonModel } from '../vision/personBoxMode';
 import './VideoPlayer.css';
 
 export function VideoPlayer({ 
@@ -628,6 +627,7 @@ export function VideoPlayer({
     setPersonBoxBusy(true);
     setPersonBoxHint('正在加载框人模型…');
     try {
+      const { ensurePersonModel } = await import('../vision/personBoxMode');
       await ensurePersonModel();
       personBoxOnRef.current = true;
       setPersonBoxOn(true);
@@ -655,6 +655,7 @@ export function VideoPlayer({
       if (!video || video.readyState < 2) return;
       busy = true;
       try {
+        const { detectPersons } = await import('../vision/personBoxMode');
         const boxes = await detectPersons(video, { upright: isFlippedRef.current });
         if (!stopped) {
           localPersonBoxesRef.current = boxes;

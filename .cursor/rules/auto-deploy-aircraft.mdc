@@ -1,0 +1,25 @@
+---
+description: 改完机端代码后自动部署到飞机，不必再等用户说部署
+alwaysApply: true
+---
+
+# 改完机端就部署
+
+改动会在飞机上生效时，做完后直接部署到 `root@192.168.222.1`，不要再等用户说「部署」。
+
+## 要部署
+
+- `RuAPS-Extracustom-rk3566NPU` 里的 `python/user_app.py`、`python/protocol.py`，以及会打进 `extracustom-userapp` 的 C++ / 脚本
+- 同一次任务里如果地面站和机端都改了，机端改完后部署一次
+
+## 不部署
+
+- 只改地面站页面、样式、`change.md`、`run.md`、协议说明，飞机上的程序不用重启
+
+## 怎么部署
+
+用 WSL 跑 `RuAPS-Extracustom-rk3566NPU/.cursor/skills/deploy-rk3566-aircraft/scripts/deploy_aircraft.sh`。先去掉脚本里的 CR。不要用 Windows OpenSSH，不要用仓库根目录带 `proxychains` 的 `deploy.sh`。不要重启整板，不要动 tmux 会话 `aiq`、`ais`。
+
+部署前看 `/usr/log/ruapm_cli.log` 末尾。已上锁（`LOCKED (DISARMED)`）才重启 `aps`。正在飞或已解锁时只装包、加 `--no-restart`，并告诉用户。
+
+连不上 `192.168.222.1` 就说明没部署成功，不要当成已经上飞机。

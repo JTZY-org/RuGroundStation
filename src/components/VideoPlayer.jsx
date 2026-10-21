@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { detectPersons, ensurePersonModel } from '../vision/personBoxMode';
 import './VideoPlayer.css';
 
 export function VideoPlayer({ 
@@ -412,21 +413,42 @@ export function VideoPlayer({
   // Target cache to prevent flickering and support multiple persistent targets
   const targetsRef = useRef(new Map());
   const animFrameRef = useRef(null);
-  const [personOnly, setPersonOnly] = useState(false); // Default to false so all detected classes are shown
+  // 机端 YOLO 会把椅子等其它类一起画上来。默认只留 COCO person（class_id 0）。
+  const [personOnly, setPersonOnly] = useState(true);
+  const personOnlyRef = useRef(true);
+  personOnlyRef.current = personOnly;
   const [targetCount, setTargetCount] = useState(0);
+  // 网页本地框人。模型在浏览器里加载，不走机端 NPU。
+  const [personBoxOn, setPersonBoxOn] = useState(false);
+  const [personBoxBusy, setPersonBoxBusy] = useState(false);
+  const [personBoxHint, setPersonBoxHint] = useState('');
+  const personBoxOnRef = useRef(false);
+  const isFlippedRef = useRef(isFlipped);
+  const localPersonBoxesRef = useRef([]);
+  isFlippedRef.current = isFlipped;
+
+  // 机端框是不是人。classId 缺省时按 0 处理，和原来的绘制标签一致。
+  const isPersonDetection = (box) => {
+    const cid = box?.classId !== undefined ? box.classId : 0;
+    return cid === 0;
+  };
 
   // Update target tracking cache when new YOLO detections arrive
   useEffect(() => {
+    if (personOnly) {
+      for (const [key, box] of targetsRef.current) {
+        if (!isPersonDetection(box)) targetsRef.current.delete(key);
+      }
+    }
     if (!yoloBox) return;
     const now = Date.now();
     const detections = Array.isArray(yoloBox) ? yoloBox : [yoloBox];
 
     detections.forEach((box) => {
       if (!box || box.x1 === undefined) return;
-      
-      // Filter: Only identify person (COCO Class 0) if enabled
-      const cid = box.classId !== undefined ? box.classId : 0;
-      if (personOnly && cid !== 0) return;
+
+      // 仅行人时丢掉椅子等其它类，避免缓存里的旧框再画一秒。
+      if (personOnly && !isPersonDetection(box)) return;
 
       const key = box.trackId !== undefined ? box.trackId : (box.targetId !== undefined ? box.targetId : (box.id !== undefined ? box.id : 1));
       targetsRef.current.set(key, {
@@ -486,12 +508,20 @@ export function VideoPlayer({
           const MAX_AGE_MS = 1000; 
 
           let activeCount = 0;
+          // 浏览器「框人」开着时只用本地模型的框。机端框继续清过期缓存，但不再画出来。
+          const drawAircraftBoxes = !personBoxOnRef.current;
           targetsRef.current.forEach((box, key) => {
             const age = now - box.lastSeen;
             if (age > MAX_AGE_MS) {
               targetsRef.current.delete(key);
               return;
             }
+            // 绘制循环不依赖 personOnly 的闭包，用 ref 读当前开关，非人框立刻清掉。
+            if (personOnlyRef.current && !isPersonDetection(box)) {
+              targetsRef.current.delete(key);
+              return;
+            }
+            if (!drawAircraftBoxes) return;
             activeCount++;
 
             const { x1, y1, x2, y2, trackId, classId, id, targetId, confidence } = box;
@@ -530,7 +560,7 @@ export function VideoPlayer({
             const tid = trackId !== undefined ? trackId : (targetId !== undefined ? targetId : (id !== undefined ? id : 1));
             const cid = classId !== undefined ? classId : 0;
             const conf = confidence !== undefined ? (confidence > 1 ? confidence : Math.round(confidence * 100)) : 0;
-            const text = cid === 0 ? `Person #${tid} (${conf}%)` : `Class ${cid} #${tid} (${conf}%)`;
+            const text = cid === 0 ? `人 #${tid} (${conf}%)` : `Class ${cid} #${tid} (${conf}%)`;
 
             ctx.font = 'bold 12px monospace';
             const textWidth = ctx.measureText(text).width;
@@ -548,6 +578,30 @@ export function VideoPlayer({
             ctx.restore();
           });
 
+          if (!drawAircraftBoxes) {
+            const localBoxes = localPersonBoxesRef.current;
+            activeCount = localBoxes.length;
+            ctx.save();
+            ctx.strokeStyle = '#00ff88';
+            ctx.lineWidth = 3;
+            ctx.font = 'bold 12px monospace';
+            for (const box of localBoxes) {
+              const x = box.left * overlay.width;
+              const y = box.top * overlay.height;
+              const w = Math.max(0, (box.right - box.left) * overlay.width);
+              const h = Math.max(0, (box.bottom - box.top) * overlay.height);
+              ctx.strokeRect(x, y, w, h);
+              const text = `人 ${Math.round((box.score || 0) * 100)}%`;
+              const textWidth = ctx.measureText(text).width;
+              const bannerY = Math.max(0, y - 20);
+              ctx.fillStyle = 'rgba(0, 0, 0, 0.55)';
+              ctx.fillRect(x, bannerY, textWidth + 10, 20);
+              ctx.fillStyle = '#00ff88';
+              ctx.fillText(text, x + 5, bannerY + 14);
+            }
+            ctx.restore();
+          }
+
           setTargetCount(activeCount);
         }
       }
@@ -562,6 +616,65 @@ export function VideoPlayer({
       if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
     };
   }, [isPlaying, isFlipped]);
+
+  const togglePersonBox = async () => {
+    if (personBoxOn) {
+      personBoxOnRef.current = false;
+      localPersonBoxesRef.current = [];
+      setPersonBoxOn(false);
+      setPersonBoxHint('');
+      return;
+    }
+    setPersonBoxBusy(true);
+    setPersonBoxHint('正在加载框人模型…');
+    try {
+      await ensurePersonModel();
+      personBoxOnRef.current = true;
+      setPersonBoxOn(true);
+      setPersonBoxHint(isPlaying ? '框人已开' : '模型已加载，开视频后画框');
+    } catch (error) {
+      personBoxOnRef.current = false;
+      localPersonBoxesRef.current = [];
+      setPersonBoxOn(false);
+      setPersonBoxHint(`框人失败：${error?.message || error}`);
+    } finally {
+      setPersonBoxBusy(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!personBoxOn || !isPlaying) {
+      localPersonBoxesRef.current = [];
+      return undefined;
+    }
+    let stopped = false;
+    let busy = false;
+    const tick = async () => {
+      if (stopped || busy) return;
+      const video = videoRef.current;
+      if (!video || video.readyState < 2) return;
+      busy = true;
+      try {
+        const boxes = await detectPersons(video, { upright: isFlippedRef.current });
+        if (!stopped) {
+          localPersonBoxesRef.current = boxes;
+          const text = boxes.length ? `框人 ${boxes.length} 人` : '框人未检出';
+          setPersonBoxHint((prev) => (prev === text ? prev : text));
+        }
+      } catch (error) {
+        if (!stopped) setPersonBoxHint(`框人失败：${error?.message || error}`);
+      } finally {
+        busy = false;
+      }
+    };
+    tick();
+    const id = setInterval(tick, 250);
+    return () => {
+      stopped = true;
+      clearInterval(id);
+      localPersonBoxesRef.current = [];
+    };
+  }, [personBoxOn, isPlaying]);
 
   // Notify parent component when stream status changes
   useEffect(() => {
@@ -604,6 +717,15 @@ export function VideoPlayer({
           />
         </div>
         <div className="button-group horizontal-buttons">
+          <button
+            type="button"
+            className={`btn ${personBoxOn ? 'btn-primary' : 'btn-secondary'}`}
+            onClick={togglePersonBox}
+            disabled={personBoxBusy}
+            title="用浏览器模型画框。打开后不再画飞机传下来的框。"
+          >
+            {personBoxBusy ? '加载模型…' : personBoxOn ? '框人开' : '框人'}
+          </button>
           <button 
             className={`btn ${personOnly ? 'btn-primary' : 'btn-secondary'}`}
             onClick={() => setPersonOnly(!personOnly)}
@@ -648,6 +770,7 @@ export function VideoPlayer({
         </div>
       </div>
 
+      {personBoxHint && <div className="person-box-hint">{personBoxHint}</div>}
       {errorMsg && <div className="error-alert">{errorMsg}</div>}
 
       <div 
@@ -656,6 +779,15 @@ export function VideoPlayer({
       >
         {/* Floating Quick Action Overlay Controls (Visible on Hover / In Fullscreen) */}
         <div className="video-floating-bar">
+          <button
+            type="button"
+            className="floating-btn"
+            onClick={togglePersonBox}
+            disabled={personBoxBusy}
+            title="用浏览器模型画框。打开后不再画飞机传下来的框。"
+          >
+            {personBoxOn ? '👤 框人开' : '👤 框人'}
+          </button>
           <button 
             className="floating-btn" 
             onClick={() => setPersonOnly(!personOnly)}

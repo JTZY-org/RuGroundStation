@@ -229,6 +229,12 @@
   display: block;
 }
 
+.person-box-hint {
+  margin: 0 0 8px;
+  color: #86efac;
+  font-size: 0.78rem;
+}
+
 .yolo-overlay-canvas {
   position: absolute;
   top: 0;

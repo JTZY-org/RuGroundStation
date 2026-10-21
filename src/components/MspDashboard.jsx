@@ -91,12 +91,12 @@ const gpsFixLabel = (fix) => {
   return fix || '未知';
 };
 
-export function MspDashboard({ onYoloBoxUpdate, streamConnected, rtspConnected, deviceIp }) {
+export function MspDashboard({ onYoloBoxUpdate, onTelemetryUpdate, streamConnected, rtspConnected, deviceIp }) {
   const isStreamActive = streamConnected !== undefined ? streamConnected : rtspConnected;
   const wsUrl = `ws://${deviceIp}:27015`;
   const [isConnected, setIsConnected] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
-  const [activeTab, setActiveTab] = useState('tracking'); // 'tracking' | 'flight' | 'manual'
+  const [activeTab, setActiveTab] = useState('tracking'); // 'tracking' | 'flight' | 'manual' // 'tracking' | 'flight' | 'manual'
   
   // 遥测数据
   const [telemetry, setTelemetry] = useState({
@@ -377,6 +377,7 @@ export function MspDashboard({ onYoloBoxUpdate, streamConnected, rtspConnected, 
         } else if (frame.command === MSP_COMMANDS.MSP_RU_VIDEO_INFO) {
           next.bitrateKbps = decoded.bitrateKbps;
         }
+        if (onTelemetryUpdate) onTelemetryUpdate(next);
         return next;
       });
     }
@@ -742,7 +743,7 @@ export function MspDashboard({ onYoloBoxUpdate, streamConnected, rtspConnected, 
         </div>
       )}
 
-      {/* 标签区 3: 调试与控制台 */}
+            {/* 标签区 3: 调试与控制台 */}
       {activeTab === 'manual' && (
         <div className="tab-pane manual-pane">
           {/* 快捷指令 */}

@@ -13,14 +13,46 @@ export function VideoPlayer({
   const overlayRef = useRef(null);
   const pcRef = useRef(null);
   const wsRef = useRef(null);
+  const pipVideoRef = useRef(null);
+  const pipCanvasRef = useRef(null);
+  const pipAnimFrameRef = useRef(null);
+  const pipRvfcRef = useRef(null);
+  const pipRunningRef = useRef(false);
+
+  const stopPipLoop = () => {
+    pipRunningRef.current = false;
+    const video = videoRef.current;
+    if (video && pipRvfcRef.current && 'cancelVideoFrameCallback' in video) {
+      try {
+        video.cancelVideoFrameCallback(pipRvfcRef.current);
+      } catch (e) {}
+      pipRvfcRef.current = null;
+    }
+    if (pipAnimFrameRef.current) {
+      cancelAnimationFrame(pipAnimFrameRef.current);
+      pipAnimFrameRef.current = null;
+    }
+  };
+
+  useEffect(() => {
+    return () => {
+      stopPipLoop();
+      if (pipVideoRef.current && pipVideoRef.current.parentNode) {
+        pipVideoRef.current.parentNode.removeChild(pipVideoRef.current);
+      }
+    };
+  }, []);
 
   const [isPlaying, setIsPlaying] = useState(false);
   const [isFlipped, setIsFlipped] = useState(true); // Default to true (corrects upside down camera mount)
+  const isFlippedRef = useRef(isFlipped);
+  isFlippedRef.current = isFlipped;
   const [isWindowFullscreen, setIsWindowFullscreen] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [isPip, setIsPip] = useState(false);
   const [status, setStatus] = useState('Idle'); // Idle, Connecting, Playing, Error
   const [errorMsg, setErrorMsg] = useState('');
-  const [showDiag, setShowDiag] = useState(true);
+  const [showDiag, setShowDiag] = useState(false);
   const [offerSdp, setOfferSdp] = useState('');
   const [answerSdp, setAnswerSdp] = useState('');
   const [rtcStats, setRtcStats] = useState({
@@ -46,6 +78,104 @@ export function VideoPlayer({
   };
 
   // Toggle Native Browser Fullscreen (Screen Fullscreen)
+
+
+  // Toggle Picture-in-Picture (画中画) - 采用 Canvas 实时合成矫正流，支持 180° 旋转与目标框同步
+  const togglePictureInPicture = async () => {
+    try {
+      if (document.pictureInPictureElement) {
+        await document.exitPictureInPicture();
+        return;
+      }
+
+      const video = videoRef.current;
+      if (!video || video.readyState < 2) return;
+
+      let pipVideo = pipVideoRef.current;
+      if (!pipVideo) {
+        pipVideo = document.createElement('video');
+        pipVideo.muted = true;
+        pipVideo.autoplay = true;
+        pipVideo.playsInline = true;
+        pipVideo.style.position = 'fixed';
+        pipVideo.style.top = '-9999px';
+        pipVideo.style.left = '-9999px';
+        pipVideo.style.width = '16px';
+        pipVideo.style.height = '16px';
+        pipVideo.style.opacity = '0';
+        pipVideo.style.pointerEvents = 'none';
+        document.body.appendChild(pipVideo);
+        pipVideoRef.current = pipVideo;
+
+        pipVideo.addEventListener('enterpictureinpicture', () => setIsPip(true));
+        pipVideo.addEventListener('leavepictureinpicture', () => {
+          setIsPip(false);
+          stopPipLoop();
+        });
+      }
+
+      let pipCanvas = pipCanvasRef.current;
+      if (!pipCanvas) {
+        pipCanvas = document.createElement('canvas');
+        pipCanvasRef.current = pipCanvas;
+      }
+
+      // 优化画中画画质与帧率：
+      // 画中画浮窗尺寸通常较小（约 300~600px），将捕获画布限制在最大 960px 宽（如 960x540），大幅降低 GPU 显存重绘带宽
+      const rawW = video.videoWidth || 1280;
+      const rawH = video.videoHeight || 720;
+      const maxDim = 960;
+      const scale = Math.min(1, maxDim / Math.max(rawW, 1));
+      const targetW = Math.round(rawW * scale);
+      const targetH = Math.round(rawH * scale);
+
+      pipCanvas.width = targetW;
+      pipCanvas.height = targetH;
+      const pipCtx = pipCanvas.getContext('2d', { alpha: false, desynchronized: true });
+
+      stopPipLoop();
+      pipRunningRef.current = true;
+
+      const renderPip = () => {
+        if (!pipRunningRef.current) return;
+        pipCtx.save();
+        if (isFlippedRef.current) {
+          pipCtx.translate(targetW, targetH);
+          pipCtx.rotate(Math.PI);
+        }
+        pipCtx.drawImage(video, 0, 0, targetW, targetH);
+        pipCtx.restore();
+
+        const overlay = overlayRef.current;
+        if (overlay && overlay.width > 0) {
+          pipCtx.drawImage(overlay, 0, 0, targetW, targetH);
+        }
+      };
+
+      // 调度循环：优先采用 requestVideoFrameCallback (rVFC 解码直达)，退化使用 requestAnimationFrame
+      const loop = () => {
+        if (!pipRunningRef.current) return;
+        renderPip();
+        if ('requestVideoFrameCallback' in video) {
+          pipRvfcRef.current = video.requestVideoFrameCallback(loop);
+        } else {
+          pipAnimFrameRef.current = requestAnimationFrame(loop);
+        }
+      };
+
+      // 先画首帧再捕获流，确保流已有有效帧和元数据
+      renderPip();
+      loop();
+
+      const stream = pipCanvas.captureStream(60);
+      pipVideo.srcObject = stream;
+      await pipVideo.play();
+      await pipVideo.requestPictureInPicture();
+    } catch (err) {
+      console.error('Picture-in-picture error:', err);
+    }
+  };
+
   const toggleNativeFullscreen = async () => {
     try {
       if (!document.fullscreenElement) {
@@ -133,6 +263,12 @@ export function VideoPlayer({
     if (overlayRef.current) {
       const ctx = overlayRef.current.getContext('2d');
       if (ctx) ctx.clearRect(0, 0, overlayRef.current.width, overlayRef.current.height);
+    }
+
+    // 5. Stop PiP loop if running
+    stopPipLoop();
+    if (document.pictureInPictureElement) {
+      document.exitPictureInPicture().catch(() => {});
     }
 
     setIsPlaying(false);
@@ -417,14 +553,6 @@ export function VideoPlayer({
   const personOnlyRef = useRef(true);
   personOnlyRef.current = personOnly;
   const [targetCount, setTargetCount] = useState(0);
-  // 网页本地框人。模型在浏览器里加载，不走机端 NPU。
-  const [personBoxOn, setPersonBoxOn] = useState(false);
-  const [personBoxBusy, setPersonBoxBusy] = useState(false);
-  const [personBoxHint, setPersonBoxHint] = useState('');
-  const personBoxOnRef = useRef(false);
-  const isFlippedRef = useRef(isFlipped);
-  const localPersonBoxesRef = useRef([]);
-  isFlippedRef.current = isFlipped;
 
   // 机端框是不是人。classId 缺省时按 0 处理，和原来的绘制标签一致。
   const isPersonDetection = (box) => {
@@ -508,7 +636,7 @@ export function VideoPlayer({
 
           let activeCount = 0;
           // 浏览器「框人」开着时只用本地模型的框。机端框继续清过期缓存，但不再画出来。
-          const drawAircraftBoxes = !personBoxOnRef.current;
+          const drawAircraftBoxes = true;
           targetsRef.current.forEach((box, key) => {
             const age = now - box.lastSeen;
             if (age > MAX_AGE_MS) {
@@ -577,29 +705,7 @@ export function VideoPlayer({
             ctx.restore();
           });
 
-          if (!drawAircraftBoxes) {
-            const localBoxes = localPersonBoxesRef.current;
-            activeCount = localBoxes.length;
-            ctx.save();
-            ctx.strokeStyle = '#00ff88';
-            ctx.lineWidth = 3;
-            ctx.font = 'bold 12px monospace';
-            for (const box of localBoxes) {
-              const x = box.left * overlay.width;
-              const y = box.top * overlay.height;
-              const w = Math.max(0, (box.right - box.left) * overlay.width);
-              const h = Math.max(0, (box.bottom - box.top) * overlay.height);
-              ctx.strokeRect(x, y, w, h);
-              const text = `人 ${Math.round((box.score || 0) * 100)}%`;
-              const textWidth = ctx.measureText(text).width;
-              const bannerY = Math.max(0, y - 20);
-              ctx.fillStyle = 'rgba(0, 0, 0, 0.55)';
-              ctx.fillRect(x, bannerY, textWidth + 10, 20);
-              ctx.fillStyle = '#00ff88';
-              ctx.fillText(text, x + 5, bannerY + 14);
-            }
-            ctx.restore();
-          }
+          
 
           setTargetCount(activeCount);
         }
@@ -615,67 +721,6 @@ export function VideoPlayer({
       if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
     };
   }, [isPlaying, isFlipped]);
-
-  const togglePersonBox = async () => {
-    if (personBoxOn) {
-      personBoxOnRef.current = false;
-      localPersonBoxesRef.current = [];
-      setPersonBoxOn(false);
-      setPersonBoxHint('');
-      return;
-    }
-    setPersonBoxBusy(true);
-    setPersonBoxHint('正在加载框人模型…');
-    try {
-      const { ensurePersonModel } = await import('../vision/personBoxMode');
-      await ensurePersonModel();
-      personBoxOnRef.current = true;
-      setPersonBoxOn(true);
-      setPersonBoxHint(isPlaying ? '框人已开' : '模型已加载，开视频后画框');
-    } catch (error) {
-      personBoxOnRef.current = false;
-      localPersonBoxesRef.current = [];
-      setPersonBoxOn(false);
-      setPersonBoxHint(`框人失败：${error?.message || error}`);
-    } finally {
-      setPersonBoxBusy(false);
-    }
-  };
-
-  useEffect(() => {
-    if (!personBoxOn || !isPlaying) {
-      localPersonBoxesRef.current = [];
-      return undefined;
-    }
-    let stopped = false;
-    let busy = false;
-    const tick = async () => {
-      if (stopped || busy) return;
-      const video = videoRef.current;
-      if (!video || video.readyState < 2) return;
-      busy = true;
-      try {
-        const { detectPersons } = await import('../vision/personBoxMode');
-        const boxes = await detectPersons(video, { upright: isFlippedRef.current });
-        if (!stopped) {
-          localPersonBoxesRef.current = boxes;
-          const text = boxes.length ? `框人 ${boxes.length} 人` : '框人未检出';
-          setPersonBoxHint((prev) => (prev === text ? prev : text));
-        }
-      } catch (error) {
-        if (!stopped) setPersonBoxHint(`框人失败：${error?.message || error}`);
-      } finally {
-        busy = false;
-      }
-    };
-    tick();
-    const id = setInterval(tick, 250);
-    return () => {
-      stopped = true;
-      clearInterval(id);
-      localPersonBoxesRef.current = [];
-    };
-  }, [personBoxOn, isPlaying]);
 
   // Notify parent component when stream status changes
   useEffect(() => {
@@ -693,7 +738,7 @@ export function VideoPlayer({
     <div className={`video-card ${isWindowFullscreen ? 'window-fullscreen' : ''}`}>
       <div className="card-header">
         <div className="card-title-group">
-          <h3>Live WebRTC Video Stream</h3>
+          <h3>实时图传视频</h3>
           <span className="channel-hint">Port 8001 (Signaling) / 8002 (SRTP Media)</span>
         </div>
         <div className="header-badges">
@@ -718,60 +763,62 @@ export function VideoPlayer({
           />
         </div>
         <div className="button-group horizontal-buttons">
-          <button
-            type="button"
-            className={`btn ${personBoxOn ? 'btn-primary' : 'btn-secondary'}`}
-            onClick={togglePersonBox}
-            disabled={personBoxBusy}
-            title="用浏览器模型画框。打开后不再画飞机传下来的框。"
-          >
-            {personBoxBusy ? '加载模型…' : personBoxOn ? '框人开' : '框人'}
-          </button>
           <button 
+            type="button"
             className={`btn ${personOnly ? 'btn-primary' : 'btn-secondary'}`}
             onClick={() => setPersonOnly(!personOnly)}
-            title="Filter to only detect person (Class 0)"
-            style={{ fontSize: '0.8rem', padding: '6px 12px' }}
+            title="只显示行人检测框或全部类别"
           >
-            {personOnly ? 'Filter: Person Only' : 'Filter: All Classes'}
+            {personOnly ? '仅人像' : '所有目标'}
           </button>
           <button 
+            type="button"
             className={`btn ${isFlipped ? 'btn-warning' : 'btn-secondary'}`}
             onClick={() => setIsFlipped(!isFlipped)}
-            title="Toggle Vertical Mirroring (Upside Down)"
+            title="切换画面垂直翻转 (修正倒装摄像头)"
           >
-            {isFlipped ? 'Normal View' : 'Flip Vertical'}
+            {isFlipped ? '画面正常' : '上下翻转'}
           </button>
           <button 
+            type="button"
+            className={`btn ${isPip ? 'btn-primary' : 'btn-secondary'}`}
+            onClick={togglePictureInPicture}
+            disabled={!isPlaying}
+            title="开启矫正旋转后的画中画悬浮窗"
+          >
+            {isPip ? '退出画中画' : '画中画'}
+          </button>
+          <button 
+            type="button"
             className={`btn ${isWindowFullscreen ? 'btn-primary' : 'btn-secondary'}`}
             onClick={toggleWindowFullscreen}
-            title="Toggle Window / Web Fullscreen"
+            title="网页窗口内全屏"
           >
-            {isWindowFullscreen ? '🗗 退出窗口全屏' : '🗖 窗口全屏'}
+            {isWindowFullscreen ? '退出窗口' : '窗口全屏'}
           </button>
           <button 
+            type="button"
             className={`btn ${isFullscreen ? 'btn-primary' : 'btn-secondary'}`}
             onClick={toggleNativeFullscreen}
-            title="Toggle Native Display Fullscreen (F11)"
+            title="显示器全屏 (F11)"
           >
-            {isFullscreen ? '🗕 退出全屏' : '⛶ 全屏'}
+            {isFullscreen ? '退出全屏' : '屏幕全屏'}
           </button>
           {!isPlaying ? (
             <button 
               className="btn btn-primary" 
               onClick={handleStartStream}
             >
-              Start WebRTC Stream
+              开启视频图传
             </button>
           ) : (
             <button className="btn btn-danger" onClick={handleStopStream}>
-              Stop Stream
+              停止图传
             </button>
           )}
         </div>
       </div>
 
-      {personBoxHint && <div className="person-box-hint">{personBoxHint}</div>}
       {errorMsg && <div className="error-alert">{errorMsg}</div>}
 
       <div 
@@ -780,51 +827,52 @@ export function VideoPlayer({
       >
         {/* Floating Quick Action Overlay Controls (Visible on Hover / In Fullscreen) */}
         <div className="video-floating-bar">
-          <button
-            type="button"
-            className="floating-btn"
-            onClick={togglePersonBox}
-            disabled={personBoxBusy}
-            title="用浏览器模型画框。打开后不再画飞机传下来的框。"
-          >
-            {personBoxOn ? '👤 框人开' : '👤 框人'}
-          </button>
           <button 
             className="floating-btn" 
             onClick={() => setPersonOnly(!personOnly)}
             title={personOnly ? 'Filter: Person Only' : 'Filter: All Classes'}
           >
-            {personOnly ? '👤 仅行人' : '🌐 全类别'}
+            {personOnly ? '仅人像' : '所有目标'}
           </button>
           <button 
             className="floating-btn" 
             onClick={() => setIsFlipped(!isFlipped)}
             title="Toggle Flip Vertical"
           >
-            🔄 翻转
+            翻转
           </button>
           <button 
+            type="button"
+            className="floating-btn" 
+            onClick={togglePictureInPicture}
+            title="开启/退出画中画悬浮窗"
+          >
+            {isPip ? '退出画中画' : '画中画'}
+          </button>
+          <button 
+            type="button"
             className="floating-btn" 
             onClick={toggleWindowFullscreen}
             title={isWindowFullscreen ? 'Exit Window Fullscreen (Esc)' : 'Window Fullscreen'}
           >
-            {isWindowFullscreen ? '🗗 窗口' : '🗖 窗口全屏'}
+            {isWindowFullscreen ? '退出窗口' : '窗口全屏'}
           </button>
           <button 
             className="floating-btn" 
             onClick={toggleNativeFullscreen}
             title={isFullscreen ? 'Exit Fullscreen (Esc)' : 'Display Fullscreen'}
           >
-            {isFullscreen ? '🗕 退出全屏' : '⛶ 屏幕全屏'}
+            {isFullscreen ? '退出全屏' : '屏幕全屏'}
           </button>
         </div>
 
         <video 
           ref={videoRef} 
-          className="video-stream" 
+          className={`video-stream ${isPip ? "is-in-pip" : ""}`} 
           autoPlay 
           playsInline 
           muted 
+          disablePictureInPicture 
           onLoadedMetadata={(e) => {
             console.log(`[WebRTC <video>] Metadata loaded: resolution=${e.target.videoWidth}x${e.target.videoHeight}`);
           }}
@@ -844,85 +892,10 @@ export function VideoPlayer({
           <canvas ref={overlayRef} className="yolo-overlay-canvas"></canvas>
         )}
         {!isPlaying && (
-          <div className="canvas-placeholder">
-            <span>WebRTC Stream Offline</span>
-            <p>Click "Start WebRTC Stream" to connect to ws://{deviceIp}:8001</p>
-          </div>
+          <div className="canvas-placeholder"></div>
         )}
       </div>
 
-      {/* WebRTC Link Diagnostics & Metric HUD */}
-      <div className="webrtc-diag-panel">
-        <div className="diag-header" onClick={() => setShowDiag(!showDiag)}>
-          <div className="diag-title">
-            <span className="diag-icon">⚡</span>
-            <strong>WebRTC 链路实时诊断指标 (inbound-rtp)</strong>
-          </div>
-          <button className="btn-toggle-diag">{showDiag ? '收起 ▲' : '展开 ▼'}</button>
-        </div>
-
-        {showDiag && (
-          <div className="diag-body">
-            <div className="diag-grid">
-              <div className="diag-item">
-                <span className="diag-label">ICE 协商状态</span>
-                <span className={`diag-value ${rtcStats.iceState === 'connected' || rtcStats.iceState === 'completed' ? 'success' : 'warn'}`}>
-                  {rtcStats.iceState.toUpperCase()}
-                </span>
-              </div>
-              <div className="diag-item">
-                <span className="diag-label">1. bytesReceived / 码率</span>
-                <span className="diag-value highlight">
-                  {(rtcStats.bytesReceived / (1024 * 1024)).toFixed(2)} MB ({rtcStats.bitrateKbps} Kbps)
-                </span>
-              </div>
-              <div className="diag-item">
-                <span className="diag-label">2. framesReceived (接收帧)</span>
-                <span className="diag-value">{rtcStats.framesReceived} 帧</span>
-              </div>
-              <div className="diag-item">
-                <span className="diag-label">3. framesDecoded (已解码)</span>
-                <span className={`diag-value ${rtcStats.framesDecoded > 0 ? 'success' : 'warn'}`}>
-                  {rtcStats.framesDecoded} 帧
-                </span>
-              </div>
-              <div className="diag-item">
-                <span className="diag-label">4. keyFramesDecoded (关键帧)</span>
-                <span className={`diag-value ${rtcStats.keyFramesDecoded >= 1 ? 'success' : 'warn'}`}>
-                  {rtcStats.keyFramesDecoded} (目标 ≥ 1)
-                </span>
-              </div>
-              <div className="diag-item">
-                <span className="diag-label">5. decoderImplementation</span>
-                <span className="diag-value code-font">{rtcStats.decoderImplementation}</span>
-              </div>
-            </div>
-
-            <div className="sdp-actions">
-              <button 
-                className="btn-sdp-copy" 
-                onClick={() => {
-                  navigator.clipboard.writeText(offerSdp || '无 SDP Offer');
-                  alert('SDP Offer 已复制到剪贴板！');
-                }}
-                disabled={!offerSdp}
-              >
-                📋 复制 Local SDP Offer
-              </button>
-              <button 
-                className="btn-sdp-copy" 
-                onClick={() => {
-                  navigator.clipboard.writeText(answerSdp || '无 SDP Answer');
-                  alert('SDP Answer 已复制到剪贴板！');
-                }}
-                disabled={!answerSdp}
-              >
-                📋 复制 Remote SDP Answer
-              </button>
-            </div>
-          </div>
-        )}
-      </div>
     </div>
   );
 }

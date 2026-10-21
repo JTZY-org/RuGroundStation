@@ -444,7 +444,7 @@ export function MspDashboard({ onYoloBoxUpdate, streamConnected, rtspConnected, 
             {isConnected ? 'GCS 链路正常' : 'GCS 离线 (请开视频)'}
           </div>
           <div className={`arm-status-pill ${telemetry.armed === 'ARMED' ? 'armed' : 'disarmed'}`}>
-            {telemetry.armed === 'ARMED' ? '⚠️ 已解锁' : '🛡️ 已上锁'}
+            {telemetry.armed === 'ARMED' ? '已解锁' : '已上锁'}
           </div>
         </div>
         
@@ -506,21 +506,21 @@ export function MspDashboard({ onYoloBoxUpdate, streamConnected, rtspConnected, 
           className={`tab-btn ${activeTab === 'tracking' ? 'active' : ''}`}
           onClick={() => setActiveTab('tracking')}
         >
-          🤖 AI 智能跟踪 {anyTrackActive && <span className="tab-dot-active"></span>}
+          AI 智能跟踪 {anyTrackActive && <span className="tab-dot-active"></span>}
         </button>
         <button 
           type="button"
           className={`tab-btn ${activeTab === 'flight' ? 'active' : ''}`}
           onClick={() => setActiveTab('flight')}
         >
-          🎮 导航与云台
+          导航与云台
         </button>
         <button 
           type="button"
           className={`tab-btn ${activeTab === 'manual' ? 'active' : ''}`}
           onClick={() => setActiveTab('manual')}
         >
-          ⚙️ 调试与控制台
+          调试与控制台
         </button>
       </div>
 
@@ -538,7 +538,6 @@ export function MspDashboard({ onYoloBoxUpdate, streamConnected, rtspConnected, 
                   onClick={() => toggleTrack('yaw')}
                   disabled={!isConnected}
                 >
-                  <span className="icon">🔄</span>
                   <div className="text-wrap">
                     <strong>偏航跟踪 (D1)</strong>
                     <small>机身自转对准目标</small>
@@ -551,7 +550,6 @@ export function MspDashboard({ onYoloBoxUpdate, streamConnected, rtspConnected, 
                   onClick={() => toggleTrack('flight')}
                   disabled={!isConnected}
                 >
-                  <span className="icon">↔️</span>
                   <div className="text-wrap">
                     <strong>平移跟踪 (D3)</strong>
                     <small>机身左右上下平移跟人</small>
@@ -570,7 +568,6 @@ export function MspDashboard({ onYoloBoxUpdate, streamConnected, rtspConnected, 
                   onClick={() => toggleTrack('range')}
                   disabled={!isConnected}
                 >
-                  <span className="icon">📏</span>
                   <div className="text-wrap">
                     <strong>后退/定距模式 (D4)</strong>
                     <small>{rangeHoldOn ? '已开启保持距离' : '关闭'}</small>
@@ -583,7 +580,6 @@ export function MspDashboard({ onYoloBoxUpdate, streamConnected, rtspConnected, 
                   onClick={stopAllTracking}
                   disabled={!anyTrackActive}
                 >
-                  <span className="icon">🛑</span>
                   <div className="text-wrap">
                     <strong>停止所有跟踪</strong>
                     <small>清零跟踪速度指令</small>
@@ -608,7 +604,7 @@ export function MspDashboard({ onYoloBoxUpdate, streamConnected, rtspConnected, 
                 <span className="val">
                   {!trackingOn ? '未开启' 
                     : (trackJudge && trackClock - trackJudge.receivedAt < TRACK_JUDGE_STALE_MS) 
-                      ? (trackJudge.turn > 0 ? '偏右 ➡️' : trackJudge.turn < 0 ? '偏左 ⬅️' : '已居中 🎯') 
+                      ? (trackJudge.turn > 0 ? '偏右' : trackJudge.turn < 0 ? '偏左' : '居中') 
                       : '等待回传…'}
                 </span>
                 <small className="sub-val">
@@ -738,7 +734,7 @@ export function MspDashboard({ onYoloBoxUpdate, streamConnected, rtspConnected, 
                   className={`gimbal-chip laser-toggle ${laserOn ? 'laser-active' : ''}`}
                   onClick={() => sendGimbalPwm(gimbalPwm, !laserOn)}
                 >
-                  ⚡ 激光{laserOn ? '关' : '开'}
+                  激光{laserOn ? '关' : '开'}
                 </button>
               </div>
             </div>

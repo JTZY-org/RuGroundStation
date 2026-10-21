@@ -9,14 +9,79 @@ export const MSP_PROTOCOL = {
 
 // MSP Message IDs
 export const MSP_COMMANDS = {
+  MSP_API_VERSION: 1,
+  MSP_FC_VARIANT: 2,
+  MSP_FC_VERSION: 3,
+  MSP_BOARD_INFO: 4,
+  MSP_BUILD_INFO: 5,
+  MSP_SAVE_CONFIG: 6,
+  MSP_REBOOT: 68,
   MSP_STATUS: 101,
   MSP_RAW_IMU: 102,
+  MSP_SERVO: 103,
+  MSP_MOTOR: 104,
+  MSP_RC: 105,
   MSP_RAW_GPS: 106,
   MSP_ATTITUDE: 108,
   MSP_ALTITUDE: 109,
   MSP_ANALOG: 110,
+  MSP_PID: 112,
+  MSP_SET_PID: 202,
+  MSP_BOXNAMES: 116,
+  MSP_PIDNAMES: 117,
+  MSP_SONAR_ALTITUDE: 58,
+  MSP_BOXIDS: 119,
+  MSP_NAV_STATUS: 121,
+  MSP_NAV_CONFIG: 122,
+  MSP_MOTOR_CONFIG: 131,
+  MSP_SET_MOTOR_CONFIG: 222,
+  MSP_SET_MOTOR: 214,  // 0xD6
+  MSP_SET_ARMING_DISABLED: 99,
+  MSP_DEVICE_CONFIG: 8,
+  MSP_SET_DEVICE_CONFIG: 9,
+  MSP_DEVICE_PATH: 10,
+  MSP_SET_DEVICE_PATH: 11,
+  MSP_ESC_CALIBRATION: 12,
+  MSP_FULL_REBOOT: 19,
   MSP_RU_VIDEO_INFO: 20,
-  MSP_RU_CUSTOM_MESSAGE: 31
+  MSP_RU_VIDEO_CONFIG: 21,
+  MSP_SET_RU_VIDEO_CONFIG: 22,
+  MSP_RU_BBOX_ERASE: 30,
+  MSP_RU_CUSTOM_MESSAGE: 31,
+  MSP_SET_NAV_CONFIG: 215,
+  MSP_MODE_RANGES: 34,
+  MSP_SET_MODE_RANGE: 35,
+  MSP_PID_ADVANCED: 94,
+  MSP_MIXER_CONFIG: 42,
+  MSP_SET_MIXER_CONFIG: 43,
+  MSP_ACC_CALIBRATION: 205,
+  MSP_FILTER_CONFIG: 92,
+  MSP_SET_FILTER_CONFIG: 93,
+  MSP_FAILSAFE_CONFIG: 75,
+  MSP_SET_FAILSAFE_CONFIG: 76,
+  MSP_RTH_CONFIG: 71,
+  MSP_SET_RTH_CONFIG: 72,
+  MSP_WP: 118,
+  MSP_SET_WP: 209
+};
+
+export const RU_VIDEO_CONFIG_LIST = {
+  COM_BroadCastWirelessFreq: 0,
+  COM_BroadCastWirelessPWRDBm: 1,
+  COM_BroadCastWirelessWidth: 2,
+  COM_BroadCastWirelessSTBC: 3,
+  COM_BroadCastWirelessMCS: 4,
+  COM_BroadCastWirelessRate: 5,
+  COM_BroadCastWirelessStressTest: 6,
+  COM_BroadCastWirelessFECSize: 7,
+  COM_BroadCastWirelessSafeMode: 8,
+  COM_VID_EncoderLancher: 9,
+  COM_BroadCastWirelessLDPC: 10,
+  COM_BroadCastWirelessUsingVHT: 11,
+  COM_BroadCastWirelessPairingKey: 12,
+  COM_BroadCastBitRate: 13,
+  COM_BroadCastPFrameSize: 14,
+  COM_BroadCastVidQB: 15,
 };
 
 export const calculateChecksum = (data) => {
@@ -29,11 +94,12 @@ export const calculateChecksum = (data) => {
 
 export const createMSPFrame = (command, payload = []) => {
   const payloadSize = payload.length;
+  // MSP v1 frame structure: $M<SIZE>CMD[PAYLOAD]CRC
   const frame = new Uint8Array(6 + payloadSize);
   let index = 0;
 
-  frame[index++] = MSP_PROTOCOL.HEADER;       // '$'
-  frame[index++] = MSP_PROTOCOL.VERSION;      // 'M'
+  frame[index++] = MSP_PROTOCOL.HEADER;    // '$'
+  frame[index++] = MSP_PROTOCOL.VERSION;   // 'M'
   frame[index++] = MSP_PROTOCOL.TYPE_REQUEST; // '<'
   frame[index++] = payloadSize;
   frame[index++] = command;
@@ -53,17 +119,28 @@ export const createMSPFrame = (command, payload = []) => {
   return frame;
 };
 
-export const parseMSPFrame = (arrayBuffer) => {
-  if (arrayBuffer.byteLength < 6) return null;
+export const parseMSPFrame = (data) => {
+  if (!data || data.byteLength < 6) {
+    if (data && data.byteLength > 0) {
+      console.warn(`[MSP] Frame dropped: length too short (${data.byteLength} < 6)`);
+    }
+    return null;
+  }
 
-  const frame = new Uint8Array(arrayBuffer);
-  if (frame[0] !== MSP_PROTOCOL.HEADER || frame[1] !== MSP_PROTOCOL.VERSION) return null;
+  const frame = new Uint8Array(data);
+  if (frame[0] !== MSP_PROTOCOL.HEADER || frame[1] !== MSP_PROTOCOL.VERSION) {
+    console.warn(`[MSP] Frame dropped: invalid header (${String.fromCharCode(frame[0])}, ${String.fromCharCode(frame[1])})`);
+    return null;
+  }
 
   const type = frame[2];
   const payloadSize = frame[3];
   const command = frame[4];
 
-  if (frame.byteLength < 6 + payloadSize) return null;
+  if (frame.byteLength < 6 + payloadSize) {
+    console.warn(`[MSP] Frame dropped for cmd ${command} (${getCommandName(command)}): incomplete frame (expected at least ${6 + payloadSize} bytes, got ${frame.byteLength})`);
+    return null;
+  }
 
   const payload = frame.slice(5, 5 + payloadSize);
   const receivedChecksum = frame[5 + payloadSize];
@@ -77,7 +154,7 @@ export const parseMSPFrame = (arrayBuffer) => {
 
   const calculatedChecksum = calculateChecksum(checksumData);
   if (receivedChecksum !== calculatedChecksum) {
-    console.warn(`[MSP] Checksum mismatch for cmd ${command}: expected 0x${calculatedChecksum.toString(16)}, got 0x${receivedChecksum.toString(16)}.`);
+    console.warn(`[MSP] Checksum mismatch for cmd ${command} (${getCommandName(command)}): expected 0x${calculatedChecksum.toString(16)}, got 0x${receivedChecksum.toString(16)}. Frame dropped.`);
     return null;
   }
 

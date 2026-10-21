@@ -28,3 +28,20 @@ dist-ssr
 # 由 vite 从依赖复制，不入库
 /public/litert/
 /public/tflite/
+
+# AI assistants and editor artifacts
+.cursor/
+.cursorrules
+.cursorignore
+.cursorindexing
+.windsurf/
+.claude/
+.gemini/
+.antigravity/
+.cline/
+.roo/
+.chat/
+.copilot/
+.copilot-tracking/
+.aider*
+linshi/

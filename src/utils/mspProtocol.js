@@ -267,6 +267,59 @@ export const decodeMSPPayload = (command, payload) => {
     case MSP_COMMANDS.MSP_RU_CUSTOM_MESSAGE: {
       if (payload.length === 0) return { message: "(No message / queue empty)" };
 
+      // 机端跟踪判断：0xFD 0x01 是偏航跟踪。不是 YOLO（0xFE），也不是文本。
+      // flags bit0=开关 bit1=有行人 bit2=本拍已调用 APMControllerSpeed
+      // turn：人在画面右侧 +1，左侧 -1，死区 0
+      // axis：0=水平 x cm/s，1=水平 y cm/s，2=偏航速率 deg/s（speed 字段同一位置）
+      if (payload.length >= 11 && view.getUint8(0) === 0xFD && view.getUint8(1) === 0x03) {
+        const flags = view.getUint8(2);
+        return {
+          isRangeHoldStatus: true,
+          enabled: (flags & 0x01) !== 0,
+          fresh: (flags & 0x02) !== 0,
+          commanded: (flags & 0x04) !== 0,
+          hasRef: (flags & 0x08) !== 0,
+          speedXCmS: view.getInt16(3, true),
+          sizeErrPx: view.getInt16(5, true),
+          refPx: view.getUint16(7, true),
+          curPx: view.getUint16(9, true)
+        };
+      }
+
+      // 0xFD 0x02 是平移跟踪，17 字节：左右/上下、y/z 速度、两轴像素偏差、宽高。
+      if (payload.length >= 17 && view.getUint8(0) === 0xFD && view.getUint8(1) === 0x02) {
+        const flags = view.getUint8(2);
+        return {
+          isFlightTrackStatus: true,
+          enabled: (flags & 0x01) !== 0,
+          fresh: (flags & 0x02) !== 0,
+          commanded: (flags & 0x04) !== 0,
+          pan: view.getInt8(3),
+          vert: view.getInt8(4),
+          speedYCmS: view.getInt16(5, true),
+          speedZCmS: view.getInt16(7, true),
+          errorXPx: view.getInt16(9, true),
+          errorYPx: view.getInt16(11, true),
+          frameWidth: view.getUint16(13, true),
+          frameHeight: view.getUint16(15, true)
+        };
+      }
+
+      if (payload.length >= 11 && view.getUint8(0) === 0xFD && view.getUint8(1) === 0x01) {
+        const flags = view.getUint8(2);
+        return {
+          isTrackStatus: true,
+          enabled: (flags & 0x01) !== 0,
+          fresh: (flags & 0x02) !== 0,
+          commanded: (flags & 0x04) !== 0,
+          turn: view.getInt8(3),
+          speedCmS: view.getInt16(4, true),
+          axis: view.getUint8(6),
+          errorPx: view.getInt16(7, true),
+          frameWidth: view.getUint16(9, true)
+        };
+      }
+
       // Helper to parse YOLO targets from a buffer starting at offset
       const parseYoloTargets = (startOffset) => {
         const targets = [];

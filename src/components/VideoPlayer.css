@@ -15,6 +15,8 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
   padding-bottom: 12px;
 }
@@ -97,10 +99,13 @@
 }
 
 .stream-settings {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  gap: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
   align-items: flex-end;
+  justify-content: space-between;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 @media (max-width: 768px) {
@@ -112,7 +117,9 @@
 .input-group {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 4px;
+  flex: 1 1 180px;
+  min-width: 130px;
 }
 
 .input-group label {
@@ -138,12 +145,18 @@
 
 .button-group.horizontal-buttons {
   display: flex;
-  gap: 8px;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  flex: 2 1 auto;
 }
 
 .button-group.horizontal-buttons button {
   width: auto;
   white-space: nowrap;
+  padding: 6px 12px;
+  font-size: 0.78rem;
+  border-radius: 6px;
 }
 
 .btn {
@@ -227,6 +240,12 @@
   height: 100%;
   object-fit: contain;
   display: block;
+}
+
+.person-box-hint {
+  margin: 0 0 8px;
+  color: #86efac;
+  font-size: 0.78rem;
 }
 
 .yolo-overlay-canvas {
@@ -508,3 +527,16 @@
 }
 
 
+
+
+/* 当处于系统画中画状态时：
+   浏览器会在原 <video> 节点上显示系统自带的“正在画中画模式下播放”黑色占位遮罩。
+   由于飞控摄像头默认倒置安装，样式加上了 transform: rotate(180deg)，导致浏览器系统占位字也被倒着渲染。
+   在进入画中画模式时：
+   1. 将原 video 透明化 (opacity: 0)，彻底隐藏浏览器自带的“正在画中画模式下播放”黑色背景与倒立文字；
+   2. 保持 canvas-wrapper 为纯深色待机底色，视觉上完全干净！
+*/
+.video-stream.is-in-pip {
+  opacity: 0 !important;
+  pointer-events: none;
+}

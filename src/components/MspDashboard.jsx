@@ -119,8 +119,25 @@ export function MspDashboard({ onYoloBoxUpdate, onTelemetryUpdate, streamConnect
     numSat: 0,
     lat: 0,
     lon: 0,
-    gpsAlt: 0
+    gpsAlt: 0,
+    lastGpsPacketTime: 0,
+    homeLat: 0,
+    homeLon: 0,
+    homeAlt: 0,
+    hasHomeGps: false
   });
+
+  const reconnectTimerRef = useRef(null);
+  const lastGpsLogRef = useRef(0);
+  const prevGpsFixRef = useRef('');
+  const hasLoggedHomeRef = useRef(false);
+
+  // 遥测数据向外部组件同步，统一在 render 后通过 useEffect 提交，避免 setState-in-render 冲突
+  useEffect(() => {
+    if (onTelemetryUpdate) {
+      onTelemetryUpdate(telemetry);
+    }
+  }, [telemetry, onTelemetryUpdate]);
 
   // 控制状态
   const [customPayloadHex, setCustomPayloadHex] = useState('');
@@ -176,6 +193,8 @@ export function MspDashboard({ onYoloBoxUpdate, onTelemetryUpdate, streamConnect
     MSP_COMMANDS.MSP_ALTITUDE,
     MSP_COMMANDS.MSP_RU_CUSTOM_MESSAGE,
     MSP_COMMANDS.MSP_RAW_GPS,
+    MSP_COMMANDS.MSP_RU_CUSTOM_MESSAGE,
+    MSP_COMMANDS.MSP_HOME_GPS,
     MSP_COMMANDS.MSP_RU_CUSTOM_MESSAGE,
     MSP_COMMANDS.MSP_RU_VIDEO_INFO,
   ]);
@@ -374,12 +393,33 @@ export function MspDashboard({ onYoloBoxUpdate, onTelemetryUpdate, streamConnect
           next.lat = decoded.lat;
           next.lon = decoded.lon;
           next.gpsAlt = decoded.alt;
+          next.lastGpsPacketTime = Date.now();
+        } else if (frame.command === MSP_COMMANDS.MSP_HOME_GPS) {
+          next.homeLat = decoded.lat;
+          next.homeLon = decoded.lon;
+          next.homeAlt = decoded.alt;
+          next.hasHomeGps = Math.abs(decoded.lat) > 0.0001 || Math.abs(decoded.lon) > 0.0001;
         } else if (frame.command === MSP_COMMANDS.MSP_RU_VIDEO_INFO) {
           next.bitrateKbps = decoded.bitrateKbps;
         }
-        if (onTelemetryUpdate) onTelemetryUpdate(next);
         return next;
       });
+
+      // 副作用日志移到 setTelemetry 纯函数外部执行
+      if (frame.command === MSP_COMMANDS.MSP_RAW_GPS) {
+        const now = Date.now();
+        if (now - lastGpsLogRef.current > 3000 || prevGpsFixRef.current !== decoded.gpsFix) {
+          lastGpsLogRef.current = now;
+          prevGpsFixRef.current = decoded.gpsFix;
+          addLog(`[GPS信号] ${decoded.gpsFix} (${decoded.numSat}星) 纬度:${decoded.lat.toFixed(6)} 经度:${decoded.lon.toFixed(6)}`, 'rx');
+        }
+      } else if (frame.command === MSP_COMMANDS.MSP_HOME_GPS) {
+        const validHome = Math.abs(decoded.lat) > 0.0001 || Math.abs(decoded.lon) > 0.0001;
+        if (validHome && !hasLoggedHomeRef.current) {
+          hasLoggedHomeRef.current = true;
+          addLog(`[返航点] HOME已同步: ${decoded.lat.toFixed(6)}, ${decoded.lon.toFixed(6)}`, 'rx');
+        }
+      }
     }
 
     if (isPollingRef.current && frame.command === pollCycle.current[currentPollIndex.current]) {
@@ -389,11 +429,34 @@ export function MspDashboard({ onYoloBoxUpdate, onTelemetryUpdate, streamConnect
     }
   }, [addLog, onYoloBoxUpdate, pollNext]);
 
+  const handleMessageRef = useRef(handleMessage);
+  handleMessageRef.current = handleMessage;
+
+  const pollNextRef = useRef(pollNext);
+  pollNextRef.current = pollNext;
+
   const connect = useCallback(() => {
-    if (wsRef.current) {
-      try { wsRef.current.close(); } catch {}
+    if (reconnectTimerRef.current) {
+      clearTimeout(reconnectTimerRef.current);
+      reconnectTimerRef.current = null;
+    }
+
+    const currentWs = wsRef.current;
+    if (currentWs) {
+      // 若当前连接正处于打开中或已打开，保持复用，切勿重复关闭重连
+      if (currentWs.readyState === WebSocket.CONNECTING || currentWs.readyState === WebSocket.OPEN) {
+        return;
+      }
+      try {
+        currentWs.onopen = null;
+        currentWs.onmessage = null;
+        currentWs.onerror = null;
+        currentWs.onclose = null;
+        currentWs.close();
+      } catch {}
       wsRef.current = null;
     }
+
     const ws = new WebSocket(wsUrl);
     ws.binaryType = 'arraybuffer';
 
@@ -402,35 +465,59 @@ export function MspDashboard({ onYoloBoxUpdate, onTelemetryUpdate, streamConnect
       setErrorMsg('');
       isPollingRef.current = true;
       currentPollIndex.current = 0;
-      pollNext();
+      if (pollNextRef.current) pollNextRef.current();
     };
-    ws.onmessage = handleMessage;
+
+    ws.onmessage = (event) => {
+      if (handleMessageRef.current) {
+        handleMessageRef.current(event);
+      }
+    };
+
     ws.onerror = () => {
       setErrorMsg('GCS 无法连接，正在自动重试…');
       setIsConnected(false);
     };
+
     ws.onclose = () => {
       setIsConnected(false);
       isPollingRef.current = false;
+      if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
+      reconnectTimerRef.current = setTimeout(() => {
+        connect();
+      }, 3000);
     };
+
     wsRef.current = ws;
-  }, [handleMessage, pollNext, wsUrl]);
+  }, [wsUrl]);
 
   const disconnect = useCallback(() => {
+    if (reconnectTimerRef.current) {
+      clearTimeout(reconnectTimerRef.current);
+      reconnectTimerRef.current = null;
+    }
     isPollingRef.current = false;
     if (pollTimerRef.current) clearTimeout(pollTimerRef.current);
-    if (wsRef.current) {
-      try { wsRef.current.close(); } catch {}
+
+    const ws = wsRef.current;
+    if (ws) {
+      try {
+        ws.onopen = null;
+        ws.onmessage = null;
+        ws.onerror = null;
+        ws.onclose = null;
+        ws.close();
+      } catch {}
       wsRef.current = null;
     }
     setIsConnected(false);
   }, []);
 
   useEffect(() => {
-    if (isStreamActive) connect();
-    else disconnect();
+    // 独立自动连接 GCS 遥测通道 (27015)，仅在 wsUrl (IP) 变化或组件卸载时重连
+    connect();
     return () => disconnect();
-  }, [connect, disconnect, isStreamActive]);
+  }, [connect, disconnect, wsUrl]);
 
   // 状态解析
   const anyTrackActive = trackingOn || flightFollowOn || rangeHoldOn;
@@ -440,9 +527,14 @@ export function MspDashboard({ onYoloBoxUpdate, onTelemetryUpdate, streamConnect
       {/* 顶部主状态栏 */}
       <div className="gcs-topbar">
         <div className="topbar-left">
-          <div className={`status-pill ${isConnected ? 'online' : 'offline'}`}>
+          <div 
+            className={`status-pill ${isConnected ? 'online' : 'offline'}`}
+            onClick={() => { if (!isConnected) connect(); }}
+            title={isConnected ? 'GCS 遥测已连接 (端口 27015)' : '点击立即尝试重连 GCS'}
+            style={{ cursor: isConnected ? 'default' : 'pointer' }}
+          >
             <span className="dot"></span>
-            {isConnected ? 'GCS 链路正常' : 'GCS 离线 (请开视频)'}
+            {isConnected ? 'GCS 链路正常' : 'GCS 离线 (点击重连)'}
           </div>
           <div className={`arm-status-pill ${telemetry.armed === 'ARMED' ? 'armed' : 'disarmed'}`}>
             {telemetry.armed === 'ARMED' ? '已解锁' : '已上锁'}
@@ -497,6 +589,12 @@ export function MspDashboard({ onYoloBoxUpdate, onTelemetryUpdate, streamConnect
         <div className="hud-cell">
           <span className="hud-label">GPS / 星数</span>
           <span className="hud-val">{gpsFixLabel(telemetry.gpsFix)} ({telemetry.numSat}星)</span>
+        </div>
+        <div className="hud-cell">
+          <span className="hud-label">返航点 (HOME)</span>
+          <span className="hud-val">
+            {telemetry.hasHomeGps ? `${telemetry.homeLat.toFixed(4)}, ${telemetry.homeLon.toFixed(4)}` : '未设定'}
+          </span>
         </div>
       </div>
 

@@ -66,11 +66,36 @@ function requestLocalPosition(AMap, timeoutMs = 6000) {
   });
 }
 
-export function GcsMapView({ lat = 0, lon = 0, alt = 0, yaw = 0, numSat = 0, isConnected = false }) {
+// 计算大圆直线距离（米）
+function calculateDistanceM(lat1, lon1, lat2, lon2) {
+  const R = 6371000;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLon = (lon2 - lon1) * Math.PI / 180;
+  const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+            Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+            Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return Math.round(R * c);
+}
+
+export function GcsMapView({ 
+  lat = 0, 
+  lon = 0, 
+  alt = 0, 
+  yaw = 0, 
+  numSat = 0, 
+  gpsFix = 'No Fix', 
+  lastGpsPacketTime = 0, 
+  homeLat = 0,
+  homeLon = 0,
+  hasHomeGps = false,
+  isConnected = false 
+}) {
   const mapContainerRef = useRef(null);
   const mapRef = useRef(null);
   const amapRef = useRef(null);
   const droneMarkerRef = useRef(null);
+  const homeMarkerRef = useRef(null);
   const localMarkerRef = useRef(null);
   const trackLineRef = useRef(null);
   const trackPathRef = useRef([]);
@@ -84,6 +109,7 @@ export function GcsMapView({ lat = 0, lon = 0, alt = 0, yaw = 0, numSat = 0, isC
   const [layerMode, setLayerMode] = useState('satellite'); // 'normal' | 'satellite'
   const [autoFollow, setAutoFollow] = useState(true);
   const [localLocInfo, setLocalLocInfo] = useState(null);
+  const [trackCount, setTrackCount] = useState(0);
 
   const satelliteLayerRef = useRef(null);
   const roadNetLayerRef = useRef(null);
@@ -211,24 +237,33 @@ export function GcsMapView({ lat = 0, lon = 0, alt = 0, yaw = 0, numSat = 0, isC
     const gcj = wgs84ToGcj02(lon, lat);
     const pos = [gcj.lng, gcj.lat];
 
-    // 更新航迹点（至少 2 个点才创建/设置 Polyline，避免 AMap 报 path 异常）
-    trackPathRef.current.push(pos);
-    if (trackPathRef.current.length > 1000) {
-      trackPathRef.current.shift();
-    }
+    // 更新航迹点（过滤静止原地抖动，位移 > 1.5m 或首个点才追加，避免原地打结）
+    const lastPos = trackPathRef.current[trackPathRef.current.length - 1];
+    const isNewMove = !lastPos || Math.hypot(gcj.lng - lastPos[0], gcj.lat - lastPos[1]) > 0.000015;
 
-    if (trackPathRef.current.length >= 2) {
-      if (!trackLineRef.current) {
-        trackLineRef.current = new AMap.Polyline({
-          path: trackPathRef.current,
-          strokeColor: '#38bdf8',
-          strokeWeight: 3,
-          strokeOpacity: 0.8,
-          strokeStyle: 'solid',
-        });
-        map.add(trackLineRef.current);
-      } else {
-        trackLineRef.current.setPath(trackPathRef.current);
+    if (isNewMove) {
+      trackPathRef.current.push(pos);
+      if (trackPathRef.current.length > 2000) {
+        trackPathRef.current.shift();
+      }
+      setTrackCount(trackPathRef.current.length);
+
+      if (trackPathRef.current.length >= 2) {
+        if (!trackLineRef.current) {
+          trackLineRef.current = new AMap.Polyline({
+            path: trackPathRef.current,
+            strokeColor: '#38bdf8',
+            strokeWeight: 3,
+            strokeOpacity: 0.85,
+            strokeStyle: 'solid',
+            lineJoin: 'round',
+            lineCap: 'round',
+            zIndex: 100
+          });
+          map.add(trackLineRef.current);
+        } else {
+          trackLineRef.current.setPath(trackPathRef.current);
+        }
       }
     }
 
@@ -263,26 +298,91 @@ export function GcsMapView({ lat = 0, lon = 0, alt = 0, yaw = 0, numSat = 0, isC
     }
   }, [alt, autoFollow, lat, lon, mapState, numSat, yaw]);
 
+  // 随 MSP_HOME_GPS 刷新返航点 (Home 点标点)
+  useEffect(() => {
+    const AMap = amapRef.current;
+    const map = mapRef.current;
+    if (!AMap || !map || mapState !== 'ready') return;
+
+    const isValidHome = (Math.abs(homeLat) > 0.0001 || Math.abs(homeLon) > 0.0001) && hasHomeGps;
+    if (!isValidHome) {
+      if (homeMarkerRef.current) {
+        map.remove(homeMarkerRef.current);
+        homeMarkerRef.current = null;
+      }
+      return;
+    }
+
+    const homeGcj = wgs84ToGcj02(homeLon, homeLat);
+    const homePos = [homeGcj.lng, homeGcj.lat];
+
+    const homeHtml = `
+      <div class="gcs-home-marker">
+        <div class="gcs-home-dot">H</div>
+        <div class="gcs-home-popup">
+          <div>返航点 (HOME)</div>
+          <div>${homeGcj.lat.toFixed(6)}, ${homeGcj.lng.toFixed(6)}</div>
+        </div>
+      </div>
+    `;
+
+    if (!homeMarkerRef.current) {
+      homeMarkerRef.current = new AMap.Marker({
+        position: homePos,
+        content: homeHtml,
+        offset: new AMap.Pixel(-12, -12),
+        zIndex: 195,
+      });
+      map.add(homeMarkerRef.current);
+    } else {
+      homeMarkerRef.current.setPosition(homePos);
+      homeMarkerRef.current.setContent(homeHtml);
+    }
+  }, [hasHomeGps, homeLat, homeLon, mapState]);
+
   const hasValidGps = Math.abs(lat) > 0.0001 || Math.abs(lon) > 0.0001;
+  const hasReceivedGps = lastGpsPacketTime > 0;
+  const isValidHome = (Math.abs(homeLat) > 0.0001 || Math.abs(homeLon) > 0.0001) && hasHomeGps;
+  const distToHome = (hasValidGps && isValidHome) ? calculateDistanceM(lat, lon, homeLat, homeLon) : null;
 
   return (
     <div className="gcs-map-wrapper full-page-map">
       <div className="map-header-bar">
         <div className="map-title-row">
-          <span className="map-title">高德地图 (MSP_RAW_GPS)</span>
-          <span className={`map-badge ${hasValidGps ? 'gps-online' : 'gps-waiting'}`}>
+          <span className="map-title">高德航图 (GPS定位)</span>
+          <span className={`map-badge ${hasValidGps ? 'gps-online' : (hasReceivedGps ? 'gps-receiving' : 'gps-waiting')}`}>
             {hasValidGps 
-              ? `飞机GPS锁定 (${numSat}星)` 
-              : (localLocInfo ? `等待飞机GPS… (参考: ${localLocInfo.city || '本机网络'})` : '正在定位本机…')}
+              ? `GPS信号锁定 (${numSat}星)` 
+              : (hasReceivedGps 
+                  ? `等待GPS信号 (${numSat}星 / ${gpsFix === 'No Fix' ? '未定位' : gpsFix})` 
+                  : (localLocInfo ? `等待飞机GPS信息… (参考: ${localLocInfo.city || '本机网络'})` : '等待飞机GPS信息…')
+                )
+            }
           </span>
           {hasValidGps && (
             <span className="map-coord-text">
-              坐标: {lat.toFixed(6)}, {lon.toFixed(6)} | 高度: {alt}m
+              机位: {lat.toFixed(6)}, {lon.toFixed(6)} | 高度: {alt}m
+              {distToHome !== null && ` | 距返航点: ${distToHome}m`}
             </span>
           )}
         </div>
 
         <div className="map-ctrl-btns">
+          {isValidHome && (
+            <button 
+              type="button" 
+              className="map-chip-btn"
+              onClick={() => {
+                if (mapRef.current) {
+                  const homeGcj = wgs84ToGcj02(homeLon, homeLat);
+                  mapRef.current.panTo([homeGcj.lng, homeGcj.lat]);
+                }
+              }}
+              title="地图视角平移至返航点 (HOME)"
+            >
+              返航点
+            </button>
+          )}
           <button 
             type="button" 
             className={`map-chip-btn ${layerMode === 'satellite' ? 'active' : ''}`}
@@ -297,10 +397,11 @@ export function GcsMapView({ lat = 0, lon = 0, alt = 0, yaw = 0, numSat = 0, isC
           >
             {autoFollow ? '锁定居中: 开' : '锁定居中: 关'}
           </button>
-          {trackPathRef.current.length > 0 && (
+          {trackCount > 0 && (
             <button 
               type="button" 
               className="map-chip-btn"
+              title="清空当前飞机历史飞行轨迹"
               onClick={() => {
                 trackPathRef.current = [];
                 if (trackLineRef.current) {
@@ -309,9 +410,10 @@ export function GcsMapView({ lat = 0, lon = 0, alt = 0, yaw = 0, numSat = 0, isC
                   } catch {}
                   trackLineRef.current = null;
                 }
+                setTrackCount(0);
               }}
             >
-              清空轨迹
+              清空轨迹 ({trackCount})
             </button>
           )}
         </div>

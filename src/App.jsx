@@ -16,7 +16,12 @@ function App() {
     gpsAlt: 0,
     yaw: 0,
     numSat: 0,
-    gpsFix: 'No Fix'
+    gpsFix: 'No Fix',
+    lastGpsPacketTime: 0,
+    homeLat: 0,
+    homeLon: 0,
+    homeAlt: 0,
+    hasHomeGps: false
   });
 
   return (
@@ -97,6 +102,11 @@ function App() {
             alt={telemetry.gpsAlt || telemetry.altitudeM} 
             yaw={telemetry.yaw} 
             numSat={telemetry.numSat} 
+            gpsFix={telemetry.gpsFix}
+            lastGpsPacketTime={telemetry.lastGpsPacketTime}
+            homeLat={telemetry.homeLat}
+            homeLon={telemetry.homeLon}
+            hasHomeGps={telemetry.hasHomeGps}
             isConnected={streamConnected} 
           />
         </div>

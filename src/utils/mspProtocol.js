@@ -15,6 +15,10 @@ export const MSP_COMMANDS = {
   MSP_ATTITUDE: 108,
   MSP_ALTITUDE: 109,
   MSP_ANALOG: 110,
+  MSP_VTXTABLE_POWERLEVEL: 138,
+  MSP_MOTOR_TELEMETRY: 139,
+  MSP_HOME_GPS: 140,
+  MSP_WP_GPS: 141,
   MSP_RU_VIDEO_INFO: 20,
   MSP_RU_CUSTOM_MESSAGE: 31
 };
@@ -54,19 +58,27 @@ export const createMSPFrame = (command, payload = []) => {
 };
 
 export const parseMSPFrame = (arrayBuffer) => {
-  if (arrayBuffer.byteLength < 6) return null;
+  if (!arrayBuffer || arrayBuffer.byteLength < 6) return null;
 
   const frame = new Uint8Array(arrayBuffer);
-  if (frame[0] !== MSP_PROTOCOL.HEADER || frame[1] !== MSP_PROTOCOL.VERSION) return null;
+  // 查找第一个有效帧头  (兼容前面存在额外前缀或字节对齐偏移)
+  let startIdx = 0;
+  while (startIdx <= frame.byteLength - 6) {
+    if (frame[startIdx] === MSP_PROTOCOL.HEADER && frame[startIdx + 1] === MSP_PROTOCOL.VERSION) {
+      break;
+    }
+    startIdx++;
+  }
+  if (startIdx > frame.byteLength - 6) return null;
 
-  const type = frame[2];
-  const payloadSize = frame[3];
-  const command = frame[4];
+  const type = frame[startIdx + 2];
+  const payloadSize = frame[startIdx + 3];
+  const command = frame[startIdx + 4];
 
-  if (frame.byteLength < 6 + payloadSize) return null;
+  if (frame.byteLength < startIdx + 6 + payloadSize) return null;
 
-  const payload = frame.slice(5, 5 + payloadSize);
-  const receivedChecksum = frame[5 + payloadSize];
+  const payload = frame.slice(startIdx + 5, startIdx + 5 + payloadSize);
+  const receivedChecksum = frame[startIdx + 5 + payloadSize];
 
   const checksumData = new Uint8Array(2 + payloadSize);
   checksumData[0] = payloadSize;
@@ -138,17 +150,27 @@ export const decodeMSPPayload = (command, payload) => {
     }
 
     case MSP_COMMANDS.MSP_RAW_GPS: {
-      if (payload.length < 18) return null;
+      if (payload.length < 14) return null;
       const fixEnum = ['No Fix', '2D Fix', '3D Fix'];
       return {
-        gpsFix: fixEnum[view.getUint8(0)] || 'Unknown',
+        gpsFix: fixEnum[view.getUint8(0)] || (view.getUint8(0) > 0 ? 'Fix' : 'No Fix'),
         numSat: view.getUint8(1),
-        lat: view.getUint32(2, true) / 10000000,
-        lon: view.getUint32(6, true) / 10000000,
-        alt: view.getUint16(10, true),
-        groundSpeed: view.getUint16(12, true),
-        groundCourse: view.getUint16(14, true) / 10,
-        pdop: view.getUint16(16, true) / 100
+        lat: view.getInt32(2, true) / 10000000,
+        lon: view.getInt32(6, true) / 10000000,
+        alt: payload.length >= 12 ? view.getInt16(10, true) : 0,
+        groundSpeed: payload.length >= 14 ? view.getUint16(12, true) : 0,
+        groundCourse: payload.length >= 16 ? view.getUint16(14, true) / 10 : 0,
+        pdop: payload.length >= 18 ? view.getUint16(16, true) / 100 : 0
+      };
+    }
+
+    case MSP_COMMANDS.MSP_HOME_GPS:
+    case MSP_COMMANDS.MSP_WP_GPS: {
+      if (payload.length < 10) return null;
+      return {
+        lat: view.getInt32(2, true) / 10000000,
+        lon: view.getInt32(6, true) / 10000000,
+        alt: payload.length >= 12 ? view.getInt16(10, true) : 0
       };
     }
 

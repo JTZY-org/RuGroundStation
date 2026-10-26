@@ -190,10 +190,63 @@
   box-shadow: 0 0 8px #94a3b8;
 }
 
+/* 返航点 (HOME) 标点样式 (金黄色徽章带 H 字符，工业航空标准，无 Emoji) */
+.gcs-home-marker {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.gcs-home-dot {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: #f59e0b;
+  border: 2px solid #ffffff;
+  color: #0f172a;
+  font-size: 13px;
+  font-weight: 900;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 0 10px rgba(245, 158, 11, 0.7);
+  cursor: pointer;
+  user-select: none;
+}
+
+.gcs-home-popup {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(15, 23, 42, 0.95);
+  border: 1px solid rgba(245, 158, 11, 0.4);
+  color: #f8fafc;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 0.68rem;
+  white-space: nowrap;
+  pointer-events: none;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.gcs-home-marker:hover .gcs-home-popup {
+  opacity: 1;
+}
+
 .map-badge.gps-online {
   background: rgba(16, 185, 129, 0.15);
   color: #34d399;
   border-color: rgba(16, 185, 129, 0.3);
+}
+
+.map-badge.gps-receiving {
+  background: rgba(14, 165, 233, 0.15);
+  color: #38bdf8;
+  border-color: rgba(14, 165, 233, 0.35);
 }
 
 .map-badge.gps-waiting {

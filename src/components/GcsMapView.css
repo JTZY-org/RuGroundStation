@@ -237,6 +237,59 @@
   opacity: 1;
 }
 
+/* 航点 (Waypoint) 标点样式 (紫粉色徽章带序号，工业航空标准，无 Emoji) */
+.gcs-wp-marker {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.gcs-wp-dot {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #a855f7;
+  border: 2px solid #ffffff;
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 0 10px rgba(168, 85, 247, 0.7);
+  cursor: pointer;
+  user-select: none;
+}
+
+.gcs-wp-popup {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(15, 23, 42, 0.95);
+  border: 1px solid rgba(168, 85, 247, 0.4);
+  color: #f8fafc;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 0.68rem;
+  white-space: nowrap;
+  pointer-events: none;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.gcs-wp-marker:hover .gcs-wp-popup {
+  opacity: 1;
+}
+
+.map-badge.wp-badge {
+  background: rgba(168, 85, 247, 0.15);
+  color: #c084fc;
+  border-color: rgba(168, 85, 247, 0.35);
+}
+
 .map-badge.gps-online {
   background: rgba(16, 185, 129, 0.15);
   color: #34d399;

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import { VideoPlayer } from './components/VideoPlayer';
 import { MspDashboard } from './components/MspDashboard';
 import { GcsMapView } from './components/GcsMapView';
@@ -21,8 +21,15 @@ function App() {
     homeLat: 0,
     homeLon: 0,
     homeAlt: 0,
-    hasHomeGps: false
+    hasHomeGps: false,
+    waypoints: []
   });
+  const [clearWpTrigger, setClearWpTrigger] = useState(0);
+
+  const handleClearWaypoints = useCallback(() => {
+    setTelemetry(prev => ({ ...prev, waypoints: [] }));
+    setClearWpTrigger(c => c + 1);
+  }, []);
 
   return (
     <div className={`app-container ${currentPage === 'map' ? 'map-mode' : ''}`}>
@@ -87,6 +94,7 @@ function App() {
               <MspDashboard 
                 onYoloBoxUpdate={setYoloBox} 
                 onTelemetryUpdate={setTelemetry}
+                clearWaypointsTrigger={clearWpTrigger}
                 streamConnected={streamConnected} 
                 deviceIp={deviceIp}
               />
@@ -107,6 +115,8 @@ function App() {
             homeLat={telemetry.homeLat}
             homeLon={telemetry.homeLon}
             hasHomeGps={telemetry.hasHomeGps}
+            waypoints={telemetry.waypoints}
+            onClearWaypoints={handleClearWaypoints}
             isConnected={streamConnected} 
           />
         </div>

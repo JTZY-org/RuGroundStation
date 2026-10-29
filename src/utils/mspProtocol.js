@@ -164,10 +164,21 @@ export const decodeMSPPayload = (command, payload) => {
       };
     }
 
-    case MSP_COMMANDS.MSP_HOME_GPS:
+    case MSP_COMMANDS.MSP_HOME_GPS: {
+      if (payload.length < 10) return null;
+      return {
+        lat: view.getInt32(2, true) / 10000000,
+        lon: view.getInt32(6, true) / 10000000,
+        alt: payload.length >= 12 ? view.getInt16(10, true) : 0
+      };
+    }
+
     case MSP_COMMANDS.MSP_WP_GPS: {
       if (payload.length < 10) return null;
       return {
+        isWaypoint: true,
+        wpIndex: view.getUint8(0), // 机端 stuData.gpsFix 可作为航点序号
+        numSat: view.getUint8(1),
         lat: view.getInt32(2, true) / 10000000,
         lon: view.getInt32(6, true) / 10000000,
         alt: payload.length >= 12 ? view.getInt16(10, true) : 0

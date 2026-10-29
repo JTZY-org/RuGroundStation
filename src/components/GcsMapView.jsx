@@ -89,6 +89,8 @@ export function GcsMapView({
   homeLat = 0,
   homeLon = 0,
   hasHomeGps = false,
+  waypoints = [],
+  onClearWaypoints = null,
   isConnected = false 
 }) {
   const mapContainerRef = useRef(null);
@@ -96,6 +98,9 @@ export function GcsMapView({
   const amapRef = useRef(null);
   const droneMarkerRef = useRef(null);
   const homeMarkerRef = useRef(null);
+  const wpMarkersRef = useRef([]);
+  const wpLineRef = useRef(null);
+  const lastWpKeyRef = useRef('');
   const localMarkerRef = useRef(null);
   const trackLineRef = useRef(null);
   const trackPathRef = useRef([]);
@@ -340,10 +345,103 @@ export function GcsMapView({
     }
   }, [hasHomeGps, homeLat, homeLon, mapState]);
 
+  // 随 MSP_WP_GPS 刷新航点标点与航线连接线 (Polyline)
+  useEffect(() => {
+    const AMap = amapRef.current;
+    const map = mapRef.current;
+    if (!AMap || !map || mapState !== 'ready') return;
+
+    const list = waypoints || [];
+    const wpKey = list.map(w => `${w.index}_${Number(w.lat).toFixed(6)}_${Number(w.lon).toFixed(6)}_${w.alt}`).join('|');
+    if (wpKey === lastWpKeyRef.current) {
+      return;
+    }
+    lastWpKeyRef.current = wpKey;
+
+    if (list.length === 0) {
+      if (wpMarkersRef.current.length > 0) {
+        wpMarkersRef.current.forEach(m => {
+          try { map.remove(m); } catch {}
+        });
+        wpMarkersRef.current = [];
+      }
+      if (wpLineRef.current) {
+        try { map.remove(wpLineRef.current); } catch {}
+        wpLineRef.current = null;
+      }
+      return;
+    }
+
+    const routePath = [];
+
+    // 复用已有的 Marker 实例，避免反复 remove/add 触发大量 non-passive DOM 事件监听器 Violation 警告
+    list.forEach((wp, i) => {
+      const wGcj = wgs84ToGcj02(wp.lon, wp.lat);
+      const pos = [wGcj.lng, wGcj.lat];
+      routePath.push(pos);
+
+      const wpHtml = `
+        <div class="gcs-wp-marker">
+          <div class="gcs-wp-dot">${wp.index}</div>
+          <div class="gcs-wp-popup">
+            <div>航点 WP #${wp.index}</div>
+            <div>${wGcj.lat.toFixed(6)}, ${wGcj.lng.toFixed(6)}</div>
+            <div>高度: ${wp.alt}m</div>
+          </div>
+        </div>
+      `;
+
+      if (i < wpMarkersRef.current.length) {
+        // 就地更新已有 Marker
+        const marker = wpMarkersRef.current[i];
+        marker.setPosition(pos);
+        marker.setContent(wpHtml);
+      } else {
+        // 创建新 Marker
+        const marker = new AMap.Marker({
+          position: pos,
+          content: wpHtml,
+          offset: new AMap.Pixel(-11, -11),
+          zIndex: 180,
+        });
+        map.add(marker);
+        wpMarkersRef.current.push(marker);
+      }
+    });
+
+    // 移除多余的 Marker（如果有删减航点）
+    while (wpMarkersRef.current.length > list.length) {
+      const removed = wpMarkersRef.current.pop();
+      try { map.remove(removed); } catch {}
+    }
+
+    // 若有 >= 2 个航点，绘制或更新航点规划折线（紫色虚线，区别于飞机历史青蓝轨迹）
+    if (routePath.length >= 2) {
+      if (!wpLineRef.current) {
+        wpLineRef.current = new AMap.Polyline({
+          path: routePath,
+          strokeColor: '#c084fc',
+          strokeWeight: 2,
+          strokeOpacity: 0.85,
+          strokeStyle: 'dashed',
+          strokeDasharray: [8, 5],
+          zIndex: 85
+        });
+        map.add(wpLineRef.current);
+      } else {
+        wpLineRef.current.setPath(routePath);
+      }
+    } else if (wpLineRef.current) {
+      try { map.remove(wpLineRef.current); } catch {}
+      wpLineRef.current = null;
+    }
+  }, [mapState, waypoints]);
+
   const hasValidGps = Math.abs(lat) > 0.0001 || Math.abs(lon) > 0.0001;
   const hasReceivedGps = lastGpsPacketTime > 0;
   const isValidHome = (Math.abs(homeLat) > 0.0001 || Math.abs(homeLon) > 0.0001) && hasHomeGps;
   const distToHome = (hasValidGps && isValidHome) ? calculateDistanceM(lat, lon, homeLat, homeLon) : null;
+  const hasWaypoints = waypoints && waypoints.length > 0;
 
   return (
     <div className="gcs-map-wrapper full-page-map">
@@ -365,9 +463,41 @@ export function GcsMapView({
               {distToHome !== null && ` | 距返航点: ${distToHome}m`}
             </span>
           )}
+          {hasWaypoints && (
+            <span className="map-badge wp-badge">
+              航点: {waypoints.length} 个
+            </span>
+          )}
         </div>
 
         <div className="map-ctrl-btns">
+          {hasWaypoints && (
+            <>
+              <button 
+                type="button" 
+                className="map-chip-btn"
+                onClick={() => {
+                  if (mapRef.current && waypoints[0]) {
+                    const firstGcj = wgs84ToGcj02(waypoints[0].lon, waypoints[0].lat);
+                    mapRef.current.panTo([firstGcj.lng, firstGcj.lat]);
+                  }
+                }}
+                title="地图视角平移至第 1 个航点 (WP #1)"
+              >
+                航点 ({waypoints.length})
+              </button>
+              <button 
+                type="button" 
+                className="map-chip-btn"
+                onClick={() => {
+                  if (onClearWaypoints) onClearWaypoints();
+                }}
+                title="清空当前航图上显示的规划航点与航线"
+              >
+                清空航点
+              </button>
+            </>
+          )}
           {isValidHome && (
             <button 
               type="button" 

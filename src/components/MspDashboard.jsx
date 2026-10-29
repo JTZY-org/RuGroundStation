@@ -91,7 +91,7 @@ const gpsFixLabel = (fix) => {
   return fix || '未知';
 };
 
-export function MspDashboard({ onYoloBoxUpdate, onTelemetryUpdate, streamConnected, rtspConnected, deviceIp }) {
+export function MspDashboard({ onYoloBoxUpdate, onTelemetryUpdate, clearWaypointsTrigger, streamConnected, rtspConnected, deviceIp }) {
   const isStreamActive = streamConnected !== undefined ? streamConnected : rtspConnected;
   const wsUrl = `ws://${deviceIp}:27015`;
   const [isConnected, setIsConnected] = useState(false);
@@ -124,13 +124,15 @@ export function MspDashboard({ onYoloBoxUpdate, onTelemetryUpdate, streamConnect
     homeLat: 0,
     homeLon: 0,
     homeAlt: 0,
-    hasHomeGps: false
+    hasHomeGps: false,
+    waypoints: []
   });
 
   const reconnectTimerRef = useRef(null);
   const lastGpsLogRef = useRef(0);
   const prevGpsFixRef = useRef('');
   const hasLoggedHomeRef = useRef(false);
+  const lastWpRecvTimeRef = useRef(0);
 
   // 遥测数据向外部组件同步，统一在 render 后通过 useEffect 提交，避免 setState-in-render 冲突
   useEffect(() => {
@@ -138,6 +140,13 @@ export function MspDashboard({ onYoloBoxUpdate, onTelemetryUpdate, streamConnect
       onTelemetryUpdate(telemetry);
     }
   }, [telemetry, onTelemetryUpdate]);
+
+  // 响应外部清空航点触发
+  useEffect(() => {
+    if (clearWaypointsTrigger > 0) {
+      setTelemetry(prev => ({ ...prev, waypoints: [] }));
+    }
+  }, [clearWaypointsTrigger]);
 
   // 控制状态
   const [customPayloadHex, setCustomPayloadHex] = useState('');
@@ -399,6 +408,74 @@ export function MspDashboard({ onYoloBoxUpdate, onTelemetryUpdate, streamConnect
           next.homeLon = decoded.lon;
           next.homeAlt = decoded.alt;
           next.hasHomeGps = Math.abs(decoded.lat) > 0.0001 || Math.abs(decoded.lon) > 0.0001;
+        } else if (frame.command === MSP_COMMANDS.MSP_WP_GPS) {
+          const lat = decoded.lat;
+          const lon = decoded.lon;
+          const alt = decoded.alt;
+          const validWp = Math.abs(lat) > 0.0001 || Math.abs(lon) > 0.0001;
+
+          // 若机端发送全0经纬度，视为机端下发的清空航点指令
+          if (!validWp && decoded.wpIndex === 0) {
+            if (prev.waypoints && prev.waypoints.length > 0) {
+              next.waypoints = [];
+              return next;
+            }
+            return prev;
+          }
+
+          if (validWp) {
+            const currentList = prev.waypoints || [];
+            const list = [...currentList];
+
+            // 航点序号判断：
+            // 机端结构体中 stuData.gpsFix 若赋值为 pages (0, 1, 2...)，转换为 1-based 序号 (WP #1, #2)
+            // 若机端未赋值 (恒为 0)，则优先匹配坐标（~1.5m 内）或作为新航点追加
+            let targetIdx = -1;
+            let targetIndexNum = 1;
+
+            if (decoded.wpIndex !== undefined && decoded.wpIndex > 0) {
+              targetIndexNum = decoded.wpIndex + 1;
+              targetIdx = list.findIndex(w => w.index === targetIndexNum);
+            } else {
+              targetIdx = list.findIndex(w => 
+                Math.abs(w.lat - lat) < 0.000015 && Math.abs(w.lon - lon) < 0.000015
+              );
+              if (targetIdx >= 0) {
+                targetIndexNum = list[targetIdx].index;
+              } else {
+                targetIndexNum = list.length + 1;
+              }
+            }
+
+            if (targetIdx >= 0) {
+              const existing = list[targetIdx];
+              // 关键：若经纬高无实质变动，直接返回 prev，避免多余渲染和触发地图组件
+              if (
+                Math.abs(existing.lat - lat) < 0.0000005 &&
+                Math.abs(existing.lon - lon) < 0.0000005 &&
+                Math.abs(existing.alt - alt) < 0.05
+              ) {
+                return prev;
+              }
+              // 如果发送过来的航点变了，就地更新该航点
+              list[targetIdx] = {
+                index: targetIndexNum,
+                lat,
+                lon,
+                alt
+              };
+            } else {
+              list.push({
+                index: targetIndexNum,
+                lat,
+                lon,
+                alt
+              });
+              list.sort((a, b) => a.index - b.index);
+            }
+
+            next.waypoints = list;
+          }
         } else if (frame.command === MSP_COMMANDS.MSP_RU_VIDEO_INFO) {
           next.bitrateKbps = decoded.bitrateKbps;
         }
@@ -418,6 +495,16 @@ export function MspDashboard({ onYoloBoxUpdate, onTelemetryUpdate, streamConnect
         if (validHome && !hasLoggedHomeRef.current) {
           hasLoggedHomeRef.current = true;
           addLog(`[返航点] HOME已同步: ${decoded.lat.toFixed(6)}, ${decoded.lon.toFixed(6)}`, 'rx');
+        }
+      } else if (frame.command === MSP_COMMANDS.MSP_WP_GPS) {
+        const validWp = Math.abs(decoded.lat) > 0.0001 || Math.abs(decoded.lon) > 0.0001;
+        if (validWp) {
+          const now = Date.now();
+          if (now - lastWpRecvTimeRef.current > 3000) {
+            lastWpRecvTimeRef.current = now;
+            const idxStr = decoded.wpIndex !== undefined ? `#${decoded.wpIndex + 1}` : '';
+            addLog(`[航点] 接收到航点 ${idxStr}: ${decoded.lat.toFixed(6)}, ${decoded.lon.toFixed(6)} (高度:${decoded.alt}m)`, 'rx');
+          }
         }
       }
     }
